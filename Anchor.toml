@@ -20,6 +20,10 @@ test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
 
 [build]
 arch = "sbf"
+idl = "types"
+
+[workspace]
+types = "types"
 
 [[test.genesis]]
 address = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"

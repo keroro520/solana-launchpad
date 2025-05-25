@@ -1,13 +1,7 @@
-/**
- * Program IDL in camelCase format in order to be used in JS/TS.
- *
- * Note that this is only a type helper and is not the actual IDL. The original
- * IDL can be found at `target/idl/reset_program.json`.
- */
-export type ResetProgram = {
+{
   "address": "11111111111111111111111111111111",
   "metadata": {
-    "name": "resetProgram",
+    "name": "reset_program",
     "version": "0.1.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
@@ -43,13 +37,13 @@ export type ResetProgram = {
           "writable": true
         },
         {
-          "name": "saleTokenMint",
+          "name": "sale_token_mint",
           "docs": [
             "Sale token mint"
           ]
         },
         {
-          "name": "userSaleToken",
+          "name": "user_sale_token",
           "docs": [
             "User's sale token account (will be created if needed)"
           ],
@@ -99,7 +93,7 @@ export type ResetProgram = {
               },
               {
                 "kind": "account",
-                "path": "saleTokenMint"
+                "path": "sale_token_mint"
               }
             ],
             "program": {
@@ -142,37 +136,37 @@ export type ResetProgram = {
           }
         },
         {
-          "name": "userPaymentToken",
+          "name": "user_payment_token",
           "docs": [
             "User's payment token account for refunds"
           ],
           "writable": true
         },
         {
-          "name": "vaultSaleToken",
+          "name": "vault_sale_token",
           "writable": true
         },
         {
-          "name": "vaultPaymentToken",
+          "name": "vault_payment_token",
           "writable": true
         },
         {
-          "name": "tokenProgram",
+          "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "associatedTokenProgram",
+          "name": "associated_token_program",
           "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         },
         {
-          "name": "systemProgram",
+          "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
     },
     {
-      "name": "claimAmount",
+      "name": "claim_amount",
       "docs": [
         "Custody account claims specific amount (partial claiming)"
       ],
@@ -201,21 +195,21 @@ export type ResetProgram = {
           "writable": true
         },
         {
-          "name": "userSaleToken",
+          "name": "user_sale_token",
           "writable": true
         },
         {
-          "name": "vaultSaleToken",
+          "name": "vault_sale_token",
           "writable": true
         },
         {
-          "name": "tokenProgram",
+          "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
         {
-          "name": "saleTokenToClaim",
+          "name": "sale_token_to_claim",
           "type": "u64"
         }
       ]
@@ -250,35 +244,35 @@ export type ResetProgram = {
           "writable": true
         },
         {
-          "name": "userPaymentToken",
+          "name": "user_payment_token",
           "writable": true
         },
         {
-          "name": "vaultPaymentToken",
+          "name": "vault_payment_token",
           "writable": true
         },
         {
-          "name": "tokenProgram",
+          "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
-          "name": "systemProgram",
+          "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
-          "name": "binId",
+          "name": "bin_id",
           "type": "u8"
         },
         {
-          "name": "paymentTokenCommitted",
+          "name": "payment_token_committed",
           "type": "u64"
         }
       ]
     },
     {
-      "name": "initAuction",
+      "name": "init_auction",
       "docs": [
         "Create a new auction"
       ],
@@ -342,45 +336,45 @@ export type ResetProgram = {
               },
               {
                 "kind": "account",
-                "path": "saleTokenMint"
+                "path": "sale_token_mint"
               }
             ]
           }
         },
         {
-          "name": "saleTokenMint"
+          "name": "sale_token_mint"
         },
         {
-          "name": "paymentTokenMint"
+          "name": "payment_token_mint"
         },
         {
-          "name": "vaultSaleToken",
+          "name": "vault_sale_token",
           "docs": [
             "Vault to hold sale tokens"
           ]
         },
         {
-          "name": "vaultPaymentToken",
+          "name": "vault_payment_token",
           "docs": [
             "Vault to hold payment tokens"
           ]
         },
         {
-          "name": "systemProgram",
+          "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
-          "name": "commitStartTime",
+          "name": "commit_start_time",
           "type": "i64"
         },
         {
-          "name": "commitEndTime",
+          "name": "commit_end_time",
           "type": "i64"
         },
         {
-          "name": "claimStartTime",
+          "name": "claim_start_time",
           "type": "i64"
         },
         {
@@ -388,7 +382,7 @@ export type ResetProgram = {
           "type": {
             "vec": {
               "defined": {
-                "name": "auctionBinParams"
+                "name": "AuctionBinParams"
               }
             }
           }
@@ -398,11 +392,11 @@ export type ResetProgram = {
           "type": "pubkey"
         },
         {
-          "name": "extensionParams",
+          "name": "extension_params",
           "type": {
             "option": {
               "defined": {
-                "name": "auctionExtensionParams"
+                "name": "AuctionExtensionParams"
               }
             }
           }
@@ -449,14 +443,14 @@ export type ResetProgram = {
           }
         },
         {
-          "name": "systemProgram",
+          "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
     },
     {
-      "name": "revertCommit",
+      "name": "revert_commit",
       "docs": [
         "User reverts a commitment"
       ],
@@ -485,27 +479,27 @@ export type ResetProgram = {
           "writable": true
         },
         {
-          "name": "userPaymentToken",
+          "name": "user_payment_token",
           "writable": true
         },
         {
-          "name": "vaultPaymentToken",
+          "name": "vault_payment_token",
           "writable": true
         },
         {
-          "name": "tokenProgram",
+          "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
         {
-          "name": "paymentTokenReverted",
+          "name": "payment_token_reverted",
           "type": "u64"
         }
       ]
     },
     {
-      "name": "setPrice",
+      "name": "set_price",
       "docs": [
         "Admin sets new price for a tier"
       ],
@@ -535,17 +529,17 @@ export type ResetProgram = {
       ],
       "args": [
         {
-          "name": "binId",
+          "name": "bin_id",
           "type": "u8"
         },
         {
-          "name": "newPrice",
+          "name": "new_price",
           "type": "u64"
         }
       ]
     },
     {
-      "name": "withdrawFees",
+      "name": "withdraw_fees",
       "docs": [
         "Admin withdraws collected fees"
       ],
@@ -573,19 +567,19 @@ export type ResetProgram = {
           "writable": true
         },
         {
-          "name": "systemProgram",
+          "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
-          "name": "binId",
+          "name": "bin_id",
           "type": "u8"
         }
       ]
     },
     {
-      "name": "withdrawFunds",
+      "name": "withdraw_funds",
       "docs": [
         "Admin withdraws funds from auction"
       ],
@@ -613,29 +607,29 @@ export type ResetProgram = {
           "writable": true
         },
         {
-          "name": "vaultSaleToken",
+          "name": "vault_sale_token",
           "writable": true
         },
         {
-          "name": "vaultPaymentToken",
+          "name": "vault_payment_token",
           "writable": true
         },
         {
-          "name": "authoritySaleToken",
+          "name": "authority_sale_token",
           "writable": true
         },
         {
-          "name": "authorityPaymentToken",
+          "name": "authority_payment_token",
           "writable": true
         },
         {
-          "name": "tokenProgram",
+          "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
         {
-          "name": "binId",
+          "name": "bin_id",
           "type": "u8"
         }
       ]
@@ -643,7 +637,7 @@ export type ResetProgram = {
   ],
   "accounts": [
     {
-      "name": "auction",
+      "name": "Auction",
       "discriminator": [
         218,
         94,
@@ -656,7 +650,7 @@ export type ResetProgram = {
       ]
     },
     {
-      "name": "committed",
+      "name": "Committed",
       "discriminator": [
         110,
         101,
@@ -669,7 +663,7 @@ export type ResetProgram = {
       ]
     },
     {
-      "name": "launchpad",
+      "name": "Launchpad",
       "discriminator": [
         247,
         20,
@@ -685,113 +679,113 @@ export type ResetProgram = {
   "errors": [
     {
       "code": 12000,
-      "name": "invalidTimeRange",
+      "name": "InvalidTimeRange",
       "msg": "Invalid time range"
     },
     {
       "code": 12001,
-      "name": "auctionNotStarted",
+      "name": "AuctionNotStarted",
       "msg": "Auction not started"
     },
     {
       "code": 12002,
-      "name": "auctionEnded",
+      "name": "AuctionEnded",
       "msg": "Auction has ended"
     },
     {
       "code": 12003,
-      "name": "claimNotStarted",
+      "name": "ClaimNotStarted",
       "msg": "Claim period not started"
     },
     {
       "code": 12100,
-      "name": "unauthorized",
+      "name": "Unauthorized",
       "msg": "Unauthorized access"
     },
     {
       "code": 12101,
-      "name": "invalidAuthority",
+      "name": "InvalidAuthority",
       "msg": "Invalid authority"
     },
     {
       "code": 12200,
-      "name": "mathOverflow",
+      "name": "MathOverflow",
       "msg": "Mathematical overflow"
     },
     {
       "code": 12201,
-      "name": "mathUnderflow",
+      "name": "MathUnderflow",
       "msg": "Mathematical underflow"
     },
     {
       "code": 12202,
-      "name": "divisionByZero",
+      "name": "DivisionByZero",
       "msg": "Division by zero"
     },
     {
       "code": 12203,
-      "name": "invalidCalculation",
+      "name": "InvalidCalculation",
       "msg": "Invalid calculation"
     },
     {
       "code": 12300,
-      "name": "invalidBinId",
+      "name": "InvalidBinId",
       "msg": "Invalid bin ID"
     },
     {
       "code": 12301,
-      "name": "invalidAuctionState",
+      "name": "InvalidAuctionState",
       "msg": "Invalid auction state"
     },
     {
       "code": 12302,
-      "name": "invalidCommitmentState",
+      "name": "InvalidCommitmentState",
       "msg": "Invalid commitment state"
     },
     {
       "code": 12400,
-      "name": "invalidAmount",
+      "name": "InvalidAmount",
       "msg": "Invalid amount"
     },
     {
       "code": 12401,
-      "name": "invalidPrice",
+      "name": "InvalidPrice",
       "msg": "Invalid price"
     },
     {
       "code": 12402,
-      "name": "insufficientBalance",
+      "name": "InsufficientBalance",
       "msg": "Insufficient balance"
     },
     {
       "code": 12403,
-      "name": "invalidTokenAccount",
+      "name": "InvalidTokenAccount",
       "msg": "Invalid token account"
     },
     {
       "code": 12404,
-      "name": "invalidPda",
+      "name": "InvalidPDA",
       "msg": "Invalid PDA"
     },
     {
       "code": 12405,
-      "name": "commitCapExceeded",
+      "name": "CommitCapExceeded",
       "msg": "Commit cap exceeded"
     },
     {
       "code": 12500,
-      "name": "systemError",
+      "name": "SystemError",
       "msg": "System error"
     },
     {
       "code": 12501,
-      "name": "accountInitFailed",
+      "name": "AccountInitFailed",
       "msg": "Account initialization failed"
     }
   ],
   "types": [
     {
-      "name": "auction",
+      "name": "Auction",
       "docs": [
         "Core auction data account",
         "PDA: [\"auction\", launchpad_key, sale_token_mint]"
@@ -814,28 +808,28 @@ export type ResetProgram = {
             "type": "pubkey"
           },
           {
-            "name": "saleToken",
+            "name": "sale_token",
             "docs": [
               "Sale token mint (tokens being sold)"
             ],
             "type": "pubkey"
           },
           {
-            "name": "paymentToken",
+            "name": "payment_token",
             "docs": [
               "Payment token mint (tokens used for payment)"
             ],
             "type": "pubkey"
           },
           {
-            "name": "vaultSaleToken",
+            "name": "vault_sale_token",
             "docs": [
               "Vault account holding sale tokens"
             ],
             "type": "pubkey"
           },
           {
-            "name": "vaultPaymentToken",
+            "name": "vault_payment_token",
             "docs": [
               "Vault account holding payment tokens"
             ],
@@ -849,18 +843,18 @@ export type ResetProgram = {
             "type": "pubkey"
           },
           {
-            "name": "commitStartTime",
+            "name": "commit_start_time",
             "docs": [
               "Auction timing"
             ],
             "type": "i64"
           },
           {
-            "name": "commitEndTime",
+            "name": "commit_end_time",
             "type": "i64"
           },
           {
-            "name": "claimStartTime",
+            "name": "claim_start_time",
             "type": "i64"
           },
           {
@@ -871,7 +865,7 @@ export type ResetProgram = {
             "type": {
               "vec": {
                 "defined": {
-                  "name": "auctionBin"
+                  "name": "AuctionBin"
                 }
               }
             }
@@ -883,7 +877,7 @@ export type ResetProgram = {
             ],
             "type": {
               "defined": {
-                "name": "auctionExtensions"
+                "name": "AuctionExtensions"
               }
             }
           },
@@ -898,7 +892,7 @@ export type ResetProgram = {
       }
     },
     {
-      "name": "auctionBin",
+      "name": "AuctionBin",
       "docs": [
         "Individual auction tier data"
       ],
@@ -906,35 +900,35 @@ export type ResetProgram = {
         "kind": "struct",
         "fields": [
           {
-            "name": "saleTokenPrice",
+            "name": "sale_token_price",
             "docs": [
               "Price per sale token (in payment token units)"
             ],
             "type": "u64"
           },
           {
-            "name": "paymentTokenCap",
+            "name": "payment_token_cap",
             "docs": [
               "Maximum payment tokens this tier can raise"
             ],
             "type": "u64"
           },
           {
-            "name": "paymentTokenRaised",
+            "name": "payment_token_raised",
             "docs": [
               "Payment tokens actually raised in this tier"
             ],
             "type": "u64"
           },
           {
-            "name": "saleTokenClaimed",
+            "name": "sale_token_claimed",
             "docs": [
               "Sale tokens already claimed from this tier"
             ],
             "type": "u64"
           },
           {
-            "name": "fundsWithdrawn",
+            "name": "funds_withdrawn",
             "docs": [
               "Whether admin has withdrawn funds from this tier"
             ],
@@ -944,7 +938,7 @@ export type ResetProgram = {
       }
     },
     {
-      "name": "auctionBinParams",
+      "name": "AuctionBinParams",
       "docs": [
         "Parameters for creating auction bins"
       ],
@@ -952,18 +946,18 @@ export type ResetProgram = {
         "kind": "struct",
         "fields": [
           {
-            "name": "saleTokenPrice",
+            "name": "sale_token_price",
             "type": "u64"
           },
           {
-            "name": "paymentTokenCap",
+            "name": "payment_token_cap",
             "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "auctionExtensionParams",
+      "name": "AuctionExtensionParams",
       "docs": [
         "Extension configuration parameters for auction initialization"
       ],
@@ -971,7 +965,7 @@ export type ResetProgram = {
         "kind": "struct",
         "fields": [
           {
-            "name": "whitelistAuthority",
+            "name": "whitelist_authority",
             "docs": [
               "Whitelist authority for access control (None = no whitelist)"
             ],
@@ -980,7 +974,7 @@ export type ResetProgram = {
             }
           },
           {
-            "name": "commitCapPerUser",
+            "name": "commit_cap_per_user",
             "docs": [
               "Per-user commitment cap (None = no cap)"
             ],
@@ -989,7 +983,7 @@ export type ResetProgram = {
             }
           },
           {
-            "name": "claimFeeRate",
+            "name": "claim_fee_rate",
             "docs": [
               "Claim fee rate (None = no fee)"
             ],
@@ -1001,7 +995,7 @@ export type ResetProgram = {
       }
     },
     {
-      "name": "auctionExtensions",
+      "name": "AuctionExtensions",
       "docs": [
         "Extension configuration data (embedded in Auction)"
       ],
@@ -1009,7 +1003,7 @@ export type ResetProgram = {
         "kind": "struct",
         "fields": [
           {
-            "name": "whitelistAuthority",
+            "name": "whitelist_authority",
             "docs": [
               "Whitelist authority for access control"
             ],
@@ -1018,7 +1012,7 @@ export type ResetProgram = {
             }
           },
           {
-            "name": "commitCapPerUser",
+            "name": "commit_cap_per_user",
             "docs": [
               "Per-user commitment cap (if enabled)"
             ],
@@ -1027,7 +1021,7 @@ export type ResetProgram = {
             }
           },
           {
-            "name": "claimFeeRate",
+            "name": "claim_fee_rate",
             "docs": [
               "Claim fee rate (if enabled)"
             ],
@@ -1039,7 +1033,7 @@ export type ResetProgram = {
       }
     },
     {
-      "name": "committed",
+      "name": "Committed",
       "docs": [
         "User commitment data for a specific auction tier",
         "PDA: [\"committed\", auction_key, user_key, bin_id]"
@@ -1069,21 +1063,21 @@ export type ResetProgram = {
             "type": "pubkey"
           },
           {
-            "name": "binId",
+            "name": "bin_id",
             "docs": [
               "Tier ID this commitment is for"
             ],
             "type": "u8"
           },
           {
-            "name": "paymentTokenCommitted",
+            "name": "payment_token_committed",
             "docs": [
               "Amount of payment tokens committed"
             ],
             "type": "u64"
           },
           {
-            "name": "saleTokenClaimed",
+            "name": "sale_token_claimed",
             "docs": [
               "Amount of sale tokens already claimed"
             ],
@@ -1100,7 +1094,7 @@ export type ResetProgram = {
       }
     },
     {
-      "name": "launchpad",
+      "name": "Launchpad",
       "docs": [
         "Reset Launchpad global state account",
         "PDA: [\"reset\"]"
@@ -1138,4 +1132,4 @@ export type ResetProgram = {
       }
     }
   ]
-};
+}
