@@ -7,7 +7,7 @@
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { ResetProgram } from "../target/types/reset_program";
+import { ResetProgram } from "../types/reset_program";
 import {
   PublicKey,
   Keypair,
@@ -17,6 +17,7 @@ import {
 } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   createMint,
   createAccount,
   mintTo,
@@ -112,9 +113,26 @@ async function createAuction(
     },
   ];
 
+  // Generate custody keypair for this example
+  const custody = Keypair.generate();
+  
+  // Extension parameters (optional)
+  const extensionParams = {
+    whitelistAuthority: null,
+    commitCapPerUser: null,
+    claimFeeRate: null,
+  };
+
   try {
     const tx = await program.methods
-      .initAuction(commitStartTime, commitEndTime, claimStartTime, bins)
+      .initAuction(
+        commitStartTime, 
+        commitEndTime, 
+        claimStartTime, 
+        bins,
+        custody.publicKey,
+        extensionParams
+      )
       .accounts({
         authority: authority.publicKey,
         launchpad: launchpadPda,
@@ -155,13 +173,13 @@ async function commitToAuction(
 ): Promise<PublicKey> {
   console.log(`💰 User committing ${commitAmount.toString()} tokens to tier ${binId}...`);
 
-  // Derive committed PDA
+  // Derive committed PDA - new seed structure: ["committed", auction_key, user_key, bin_id]
   const [committedPda] = PublicKey.findProgramAddressSync(
     [
       Buffer.from(COMMITTED_SEED),
       auctionPda.toBuffer(),
-      Buffer.from([binId]),
       user.publicKey.toBuffer(),
+      Buffer.from([binId]),
     ],
     program.programId
   );
@@ -201,7 +219,10 @@ async function claimTokens(
   auctionPda: PublicKey,
   committedPda: PublicKey,
   userSaleToken: PublicKey,
-  vaultSaleToken: PublicKey
+  userPaymentToken: PublicKey,
+  vaultSaleToken: PublicKey,
+  vaultPaymentToken: PublicKey,
+  saleTokenMint: PublicKey
 ): Promise<void> {
   console.log("🎁 Claiming allocated tokens...");
 
@@ -212,9 +233,14 @@ async function claimTokens(
         user: user.publicKey,
         auction: auctionPda,
         committed: committedPda,
+        saleTokenMint: saleTokenMint,
         userSaleToken: userSaleToken,
+        userPaymentToken: userPaymentToken,
         vaultSaleToken: vaultSaleToken,
+        vaultPaymentToken: vaultPaymentToken,
         tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
       .signers([user])
       .rpc();
@@ -243,8 +269,7 @@ async function displayAccountData(
     const launchpadData = await program.account.launchpad.fetch(launchpadPda);
     console.log("📋 Launchpad Data:");
     console.log("   Authority:", launchpadData.authority.toString());
-    console.log("   Total Auctions:", launchpadData.totalAuctions.toString());
-    console.log("   Total Fees:", launchpadData.totalFeesCollected.toString());
+    console.log("   Bump:", launchpadData.bump);
 
     // Fetch auction data if provided
     if (auctionPda) {
@@ -253,6 +278,7 @@ async function displayAccountData(
       console.log("   Authority:", auctionData.authority.toString());
       console.log("   Sale Token:", auctionData.saleToken.toString());
       console.log("   Payment Token:", auctionData.paymentToken.toString());
+      console.log("   Custody:", auctionData.custody.toString());
       console.log("   Commit Start:", new Date(auctionData.commitStartTime.toNumber() * 1000).toISOString());
       console.log("   Commit End:", new Date(auctionData.commitEndTime.toNumber() * 1000).toISOString());
       console.log("   Claim Start:", new Date(auctionData.claimStartTime.toNumber() * 1000).toISOString());
@@ -266,6 +292,12 @@ async function displayAccountData(
         console.log(`     Claimed: ${bin.saleTokenClaimed.toString()}`);
         console.log(`     Withdrawn: ${bin.fundsWithdrawn}`);
       });
+
+      // Display extension data
+      console.log("🔧 Extensions:");
+      console.log("   Whitelist Authority:", auctionData.extensions.whitelistAuthority?.toString() || "None");
+      console.log("   Commit Cap Per User:", auctionData.extensions.commitCapPerUser?.toString() || "None");
+      console.log("   Claim Fee Rate:", auctionData.extensions.claimFeeRate?.toString() || "None");
     }
 
     // Fetch commitment data if provided
@@ -324,8 +356,14 @@ async function main() {
   console.log("   - program.account.committed");
 
   console.log("\n🔧 Type definitions available in:");
-  console.log("   - target/types/reset_program.ts");
-  console.log("   - target/idl/reset_program.json");
+  console.log("   - types/reset_program.ts");
+  console.log("   - types/reset_program.json");
+
+  console.log("\n🆕 New features in this version:");
+  console.log("   - Embedded auction extensions (whitelist, commit caps, claim fees)");
+  console.log("   - Custody account support");
+  console.log("   - Enhanced claim functionality with automatic refunds");
+  console.log("   - Updated PDA seed structures");
 }
 
 // Run the example
