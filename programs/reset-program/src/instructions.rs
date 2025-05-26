@@ -1,31 +1,16 @@
+use crate::consts::LAUNCHPAD_ADMIN;
 use crate::errors::*;
 use crate::extensions::ExtensionValidator;
 use crate::state::*;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token::{Mint, Token, TokenAccount},
+    token::{self, Mint, Token, TokenAccount, Transfer},
 };
 
 // Instruction handlers and context structures
 
-/// Initialize the Reset Launchpad platform
-pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-    let launchpad = &mut ctx.accounts.launchpad;
-
-    // Store the bump for future PDA derivations
-    launchpad.bump = ctx.bumps.launchpad;
-    launchpad.authority = ctx.accounts.authority.key();
-    launchpad.reserved = [0; 200];
-
-    msg!(
-        "Reset Launchpad initialized with authority: {}",
-        launchpad.authority
-    );
-    Ok(())
-}
-
-/// Create a new auction
+/// Create a new auction with automatic vault creation
 pub fn init_auction(
     ctx: Context<InitAuction>,
     commit_start_time: i64,
@@ -35,6 +20,13 @@ pub fn init_auction(
     custody: Pubkey,
     extension_params: Option<AuctionExtensionParams>,
 ) -> Result<()> {
+    // Verify signer is LaunchpadAdmin
+    if ctx.accounts.authority.key() != LAUNCHPAD_ADMIN {
+        return Err(ErrorHelper::validation_error(
+            error_codes::UNAUTHORIZED,
+            "Only LaunchpadAdmin can create auctions",
+        ));
+    }
     // Timing validation
     let current_time = Clock::get()?.unix_timestamp;
 
@@ -68,7 +60,7 @@ pub fn init_auction(
     }
 
     for bin in &bins {
-        if bin.sale_token_price == 0 || bin.payment_token_cap == 0 {
+        if bin.sale_token_price == 0 || bin.sale_token_cap == 0 {
             return Err(ErrorHelper::validation_error(
                 error_codes::INVALID_PRICE,
                 "Price and cap must be greater than zero",
@@ -78,31 +70,31 @@ pub fn init_auction(
 
     // Initialize auction
     let auction = &mut ctx.accounts.auction;
-    auction.authority = ctx.accounts.authority.key();
-    auction.launchpad = ctx.accounts.launchpad.key();
+    auction.authority = LAUNCHPAD_ADMIN;
     auction.sale_token = ctx.accounts.sale_token_mint.key();
     auction.payment_token = ctx.accounts.payment_token_mint.key();
-    auction.vault_sale_token = ctx.accounts.vault_sale_token.key();
-    auction.vault_payment_token = ctx.accounts.vault_payment_token.key();
     auction.custody = custody;
 
     auction.commit_start_time = commit_start_time;
     auction.commit_end_time = commit_end_time;
     auction.claim_start_time = claim_start_time;
 
+    // Store vault bump seeds
+    auction.vault_sale_bump = ctx.bumps.vault_sale_token;
+    auction.vault_payment_bump = ctx.bumps.vault_payment_token;
+
     // Convert params to bins
     auction.bins = bins
         .into_iter()
         .map(|params| AuctionBin {
             sale_token_price: params.sale_token_price,
-            payment_token_cap: params.payment_token_cap,
+            sale_token_cap: params.sale_token_cap,
             payment_token_raised: 0,
             sale_token_claimed: 0,
-            funds_withdrawn: false,
         })
         .collect();
 
-    // Handle extensions if provided - set the embedded extensions struct
+    // Handle extensions if provided
     if let Some(ext_params) = extension_params {
         auction.extensions = AuctionExtensions {
             whitelist_authority: ext_params.whitelist_authority,
@@ -114,6 +106,25 @@ pub fn init_auction(
     }
 
     auction.bump = ctx.bumps.auction;
+
+    // Calculate total sale tokens needed for all bins
+    let total_sale_tokens_needed: u64 = auction.bins.iter().map(|bin| bin.sale_token_cap).sum();
+
+    // Transfer required sale tokens from sale_token_seller to vault
+    if total_sale_tokens_needed > 0 {
+        token::transfer(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.sale_token_seller.to_account_info(),
+                    to: ctx.accounts.vault_sale_token.to_account_info(),
+                    authority: ctx.accounts.sale_token_seller_authority.to_account_info(),
+                },
+            ),
+            total_sale_tokens_needed,
+        )?;
+    }
+
     msg!("Auction initialized with {} tiers", auction.bins.len());
     Ok(())
 }
@@ -130,7 +141,6 @@ pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) ->
     // Store keys before borrowing auction mutably
     let auction_key = ctx.accounts.auction.key();
     let user_key = ctx.accounts.user.key();
-    let launchpad_key = ctx.accounts.auction.launchpad;
 
     let auction = &mut ctx.accounts.auction;
 
@@ -143,52 +153,49 @@ pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) ->
     }
 
     // Extension validations
-    // 1. Validate whitelist (if enabled)
     ExtensionValidator::validate_whitelist(auction, &user_key, &auction.custody)?;
 
-    // 2. Validate commit cap (if enabled) - need to get current commitment first
+    // Get current commitment for cap validation
     let current_committed = if !ctx.accounts.committed.data_is_empty() {
         let committed_data = ctx.accounts.committed.try_borrow_data()?;
-        let committed = Committed::try_from_slice(&committed_data)?;
-        committed.payment_token_committed
+        Some(Committed::try_from_slice(&committed_data)?)
     } else {
-        0
+        None
     };
 
     ExtensionValidator::validate_commit_cap(
         auction,
         &user_key,
         &auction.custody,
-        current_committed,
+        current_committed.as_ref(),
         payment_token_committed,
     )?;
 
     // Validate bin_id and get bin
     let bin = auction.get_bin_mut(bin_id)?;
 
+    // Check if commitment would exceed tier cap (convert payment tokens to sale tokens)
+    let sale_tokens_from_commitment = payment_token_committed / bin.sale_token_price;
+    if bin.sale_token_claimed + sale_tokens_from_commitment > bin.sale_token_cap {
+        return Err(ResetErrorCode::ExceedsTierCap.into());
+    }
+
     // Create or update committed account
-    let bin_id_bytes = [bin_id];
-    let committed_seeds = &[
-        COMMITTED_SEED,
-        auction_key.as_ref(),
-        &bin_id_bytes,
-        user_key.as_ref(),
-    ];
-    let (committed_pda, committed_bump) =
+    let committed_seeds = &[COMMITTED_SEED, auction_key.as_ref(), user_key.as_ref()];
+    let (committed_pda, _committed_bump) =
         Pubkey::find_program_address(committed_seeds, ctx.program_id);
 
     if ctx.accounts.committed.key() != committed_pda {
         return Err(ResetErrorCode::InvalidPDA.into());
     }
 
-    // Check if account exists and create if needed
+    // Handle committed account creation/update
     if ctx.accounts.committed.data_is_empty() {
-        // Create the account using system program
+        // Create new committed account with space for 1 bin initially
         let rent = Rent::get()?;
-        let space = Committed::SPACE;
+        let space = Committed::space_for_bins(1);
         let lamports = rent.minimum_balance(space);
 
-        // Use invoke_signed to create the account
         let create_account_ix = anchor_lang::solana_program::system_instruction::create_account(
             &ctx.accounts.user.key(),
             &ctx.accounts.committed.key(),
@@ -209,58 +216,91 @@ pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) ->
         // Initialize the account data
         let mut committed_data = ctx.accounts.committed.try_borrow_mut_data()?;
         let committed = Committed {
-            launchpad: launchpad_key,
             auction: auction_key,
             user: user_key,
-            bin_id,
-            payment_token_committed,
-            sale_token_claimed: 0,
-            bump: committed_bump,
+            bins: vec![CommittedBin {
+                bin_id,
+                payment_token_committed,
+                sale_token_claimed: 0,
+            }],
+            bump: _committed_bump,
         };
-        committed.serialize(&mut &mut committed_data[..])?;
+        committed.serialize(&mut committed_data.as_mut())?;
     } else {
-        // Update existing account
+        // Update existing committed account
         let mut committed_data = ctx.accounts.committed.try_borrow_mut_data()?;
         let mut committed = Committed::try_from_slice(&committed_data)?;
-        committed.payment_token_committed = committed
-            .payment_token_committed
-            .checked_add(payment_token_committed)
-            .ok_or(ResetErrorCode::MathOverflow)?;
-        committed.serialize(&mut &mut committed_data[..])?;
+
+        // Check if we need to add a new bin or update existing one
+        if let Some(existing_bin) = committed.find_bin_mut(bin_id) {
+            // Update existing bin
+            existing_bin.payment_token_committed = existing_bin
+                .payment_token_committed
+                .checked_add(payment_token_committed)
+                .ok_or(ResetErrorCode::MathOverflow)?;
+        } else {
+            // Need to add new bin - realloc account space
+            let current_bin_count = committed.bins.len();
+            let new_space = Committed::space_for_bins(current_bin_count + 1);
+
+            // Realloc account
+            ctx.accounts.committed.realloc(new_space, false)?;
+
+            // Add new bin
+            committed.bins.push(CommittedBin {
+                bin_id,
+                payment_token_committed,
+                sale_token_claimed: 0,
+            });
+        }
+
+        // Serialize updated data
+        let mut committed_data = ctx.accounts.committed.try_borrow_mut_data()?;
+        committed.serialize(&mut committed_data.as_mut())?;
     }
 
-    // Update auction state
-    bin.payment_token_raised = bin
-        .payment_token_raised
-        .checked_add(payment_token_committed)
-        .ok_or(ResetErrorCode::MathOverflow)?;
+    // Update bin state
+    bin.payment_token_raised += payment_token_committed;
 
-    // Transfer tokens from user to vault
-    let cpi_accounts = anchor_spl::token::Transfer {
-        from: ctx.accounts.user_payment_token.to_account_info(),
-        to: ctx.accounts.vault_payment_token.to_account_info(),
-        authority: ctx.accounts.user.to_account_info(),
-    };
-    let cpi_program = ctx.accounts.token_program.to_account_info();
-    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
-    anchor_spl::token::transfer(cpi_ctx, payment_token_committed)?;
+    // Transfer payment tokens to vault
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.user_payment_token.to_account_info(),
+                to: ctx.accounts.vault_payment_token.to_account_info(),
+                authority: ctx.accounts.user.to_account_info(),
+            },
+        ),
+        payment_token_committed,
+    )?;
 
     msg!(
-        "Committed {} payment tokens to bin {} by user {}",
+        "User {} committed {} tokens to tier {}",
+        user_key,
         payment_token_committed,
-        bin_id,
-        user_key
+        bin_id
     );
     Ok(())
 }
 
-/// User reverts a commitment
-pub fn revert_commit(ctx: Context<RevertCommit>, payment_token_reverted: u64) -> Result<()> {
-    let auction = &mut ctx.accounts.auction;
-    let committed = &mut ctx.accounts.committed;
+/// User decreases a commitment (renamed from revert_commit)
+pub fn decrease_commit(
+    ctx: Context<DecreaseCommit>,
+    bin_id: u8,
+    payment_token_reverted: u64,
+) -> Result<()> {
     let current_time = Clock::get()?.unix_timestamp;
 
-    // Timing validation - can only revert during commit period
+    // Validate amount
+    if payment_token_reverted == 0 {
+        return Err(ResetErrorCode::InvalidAmount.into());
+    }
+
+    let auction = &mut ctx.accounts.auction;
+    let committed = &mut ctx.accounts.committed;
+
+    // Timing validation - can only decrease during commit period
     if current_time < auction.commit_start_time {
         return Err(ResetErrorCode::AuctionNotStarted.into());
     }
@@ -268,494 +308,425 @@ pub fn revert_commit(ctx: Context<RevertCommit>, payment_token_reverted: u64) ->
         return Err(ResetErrorCode::AuctionEnded.into());
     }
 
-    // Validate ownership - ensure the committed account belongs to the user
+    // Validate user owns this commitment
     if committed.user != ctx.accounts.user.key() {
         return Err(ResetErrorCode::Unauthorized.into());
     }
 
-    // Extension validations
-    // Validate whitelist (if enabled) - user should be authorized to revert
-    ExtensionValidator::validate_whitelist(auction, &ctx.accounts.user.key(), &auction.custody)?;
+    // Find the specific bin commitment
+    let committed_bin = committed
+        .find_bin_mut(bin_id)
+        .ok_or(ResetErrorCode::InvalidBinId)?;
 
-    // Validate amount
-    if payment_token_reverted == 0 {
-        return Err(ResetErrorCode::InvalidAmount.into());
-    }
-    if payment_token_reverted > committed.payment_token_committed {
+    // Validate sufficient committed amount
+    if committed_bin.payment_token_committed < payment_token_reverted {
         return Err(ResetErrorCode::InsufficientBalance.into());
     }
 
-    // Get the bin for this commitment
-    let bin = auction.get_bin_mut(committed.bin_id)?;
-
-    // Update committed account
-    committed.payment_token_committed = committed
-        .payment_token_committed
-        .checked_sub(payment_token_reverted)
-        .ok_or(ResetErrorCode::MathOverflow)?;
-
-    // Update auction state
-    bin.payment_token_raised = bin
-        .payment_token_raised
-        .checked_sub(payment_token_reverted)
-        .ok_or(ResetErrorCode::MathOverflow)?;
-
-    // Transfer tokens from vault back to user
-    let auction_key = auction.key();
-    let launchpad_key = auction.launchpad;
-    let seeds = &[
-        AUCTION_SEED,
-        launchpad_key.as_ref(),
-        auction.sale_token.as_ref(),
-        &[auction.bump],
-    ];
-    let signer_seeds = &[&seeds[..]];
-
-    let cpi_accounts = anchor_spl::token::Transfer {
-        from: ctx.accounts.vault_payment_token.to_account_info(),
-        to: ctx.accounts.user_payment_token.to_account_info(),
-        authority: auction.to_account_info(),
-    };
-    let cpi_program = ctx.accounts.token_program.to_account_info();
-    let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds);
-    anchor_spl::token::transfer(cpi_ctx, payment_token_reverted)?;
-
-    msg!(
-        "Reverted {} payment tokens from bin {} by user {}",
-        payment_token_reverted,
-        committed.bin_id,
-        ctx.accounts.user.key()
-    );
-    Ok(())
-}
-
-/// User claims all allocated tokens and refunds
-pub fn claim(ctx: Context<Claim>) -> Result<()> {
-    let auction = &mut ctx.accounts.auction;
-    let committed = &mut ctx.accounts.committed;
-    let current_time = Clock::get()?.unix_timestamp;
-
-    // Timing validation - can only claim during claim period
-    if current_time < auction.claim_start_time {
-        return Err(ResetErrorCode::ClaimNotStarted.into());
-    }
-
-    // Ownership validation - ensure the committed account belongs to the user
-    if committed.user != ctx.accounts.user.key() {
-        return Err(ResetErrorCode::Unauthorized.into());
-    }
-
-    // Get the bin for this commitment
-    let bin = auction.get_bin(committed.bin_id)?;
-
-    // Calculate claimable amounts using the full allocation algorithm
-    let claimable_amounts = crate::allocation::calculate_claimable_amounts(
-        committed.payment_token_committed,
-        bin.payment_token_cap,
-        bin.payment_token_raised,
-        bin.sale_token_price,
-    )?;
-
-    // Check if user has already claimed
-    if committed.sale_token_claimed >= claimable_amounts.sale_tokens {
-        return Err(ResetErrorCode::InvalidAmount.into()); // Nothing left to claim
-    }
-
-    let sale_tokens_to_claim = claimable_amounts
-        .sale_tokens
-        .checked_sub(committed.sale_token_claimed)
-        .ok_or(ResetErrorCode::MathUnderflow)?;
-
-    // Calculate payment token refund (only if not already refunded)
-    let payment_tokens_to_refund = claimable_amounts.refund_payment_tokens;
-
-    // Extension: Calculate claim fee (if enabled)
-    let claim_fee = ExtensionValidator::calculate_claim_fee(auction, sale_tokens_to_claim)?;
-
-    // Note: For now, claim_fee is always 0 (mock implementation)
-    // In production, this fee would be deducted from the claimed tokens or charged separately
-    if claim_fee > 0 {
-        // TODO transfer claim fee to Auction account
-    }
-
-    // Update committed account to mark tokens as claimed
-    committed.sale_token_claimed = claimable_amounts.sale_tokens;
-
-    // Update auction bin state
-    let bin_mut = auction.get_bin_mut(committed.bin_id)?;
-    bin_mut.sale_token_claimed = bin_mut
-        .sale_token_claimed
-        .checked_add(sale_tokens_to_claim)
-        .ok_or(ResetErrorCode::MathOverflow)?;
-
-    // Prepare auction authority seeds for CPI
-    let auction_key = auction.key();
-    let launchpad_key = auction.launchpad;
-    let seeds = &[
-        AUCTION_SEED,
-        launchpad_key.as_ref(),
-        auction.sale_token.as_ref(),
-        &[auction.bump],
-    ];
-    let signer_seeds = &[&seeds[..]];
-
-    // Transfer sale tokens from vault to user (if any to claim)
-    if sale_tokens_to_claim > 0 {
-        let cpi_accounts = anchor_spl::token::Transfer {
-            from: ctx.accounts.vault_sale_token.to_account_info(),
-            to: ctx.accounts.user_sale_token.to_account_info(),
-            authority: auction.to_account_info(),
-        };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds);
-        anchor_spl::token::transfer(cpi_ctx, sale_tokens_to_claim)?;
-    }
-
-    // Transfer payment token refund to user (if any to refund)
-    if payment_tokens_to_refund > 0 {
-        let cpi_accounts = anchor_spl::token::Transfer {
-            from: ctx.accounts.vault_payment_token.to_account_info(),
-            to: ctx.accounts.user_payment_token.to_account_info(),
-            authority: auction.to_account_info(),
-        };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds);
-        anchor_spl::token::transfer(cpi_ctx, payment_tokens_to_refund)?;
-    }
-
-    msg!(
-        "Claimed {} sale tokens and {} payment token refund from bin {} by user {} (fee: {})",
-        sale_tokens_to_claim,
-        payment_tokens_to_refund,
-        committed.bin_id,
-        ctx.accounts.user.key(),
-        claim_fee
-    );
-    Ok(())
-}
-
-/// Custody account claims specific amount
-pub fn claim_amount(ctx: Context<ClaimAmount>, sale_token_to_claim: u64) -> Result<()> {
-    let auction = &mut ctx.accounts.auction;
-    let committed = &mut ctx.accounts.committed;
-    let current_time = Clock::get()?.unix_timestamp;
-
-    // Timing validation - can only claim during claim period
-    if current_time < auction.claim_start_time {
-        return Err(ResetErrorCode::ClaimNotStarted.into());
-    }
-
-    // Amount validation
-    if sale_token_to_claim == 0 {
-        return Err(ResetErrorCode::InvalidAmount.into());
-    }
-
-    // Ownership validation - ensure the committed account belongs to the user
-    if committed.user != ctx.accounts.user.key() {
-        return Err(ResetErrorCode::Unauthorized.into());
-    }
-
-    // Extension: Calculate claim fee (if enabled)
-    let claim_fee = ExtensionValidator::calculate_claim_fee(auction, sale_token_to_claim)?;
-
-    // Note: For now, claim_fee is always 0 (mock implementation)
-    // In production, this fee would be deducted from the claimed tokens or charged separately
-    if claim_fee > 0 {
-        // TODO transfer claim fee to Auction account
-    }
-
-    // Get the bin for this commitment
-    let bin = auction.get_bin(committed.bin_id)?;
-
-    // Calculate total sale tokens available for this tier
-    let tier_sale_tokens = bin
-        .payment_token_cap
-        .checked_div(bin.sale_token_price)
-        .ok_or(ResetErrorCode::DivisionByZero)?;
-
-    // Calculate total claimable amount using allocation algorithm
-    let total_claimable = crate::allocation::calculate_claimable_amount(
-        committed.payment_token_committed,
-        bin.payment_token_raised,
-        tier_sale_tokens,
-    )?;
-
-    // Check if user has enough unclaimed tokens
-    let already_claimed = committed.sale_token_claimed;
-    let remaining_claimable = total_claimable
-        .checked_sub(already_claimed)
-        .ok_or(ResetErrorCode::MathUnderflow)?;
-
-    if sale_token_to_claim > remaining_claimable {
-        return Err(ResetErrorCode::InsufficientBalance.into());
-    }
-
-    // Update committed account to mark tokens as claimed
-    committed.sale_token_claimed = committed
-        .sale_token_claimed
-        .checked_add(sale_token_to_claim)
-        .ok_or(ResetErrorCode::MathOverflow)?;
-
-    // Update auction bin state
-    let bin_mut = auction.get_bin_mut(committed.bin_id)?;
-    bin_mut.sale_token_claimed = bin_mut
-        .sale_token_claimed
-        .checked_add(sale_token_to_claim)
-        .ok_or(ResetErrorCode::MathOverflow)?;
-
-    // Transfer sale tokens from vault to user
-    let auction_key = auction.key();
-    let launchpad_key = auction.launchpad;
-    let seeds = &[
-        AUCTION_SEED,
-        launchpad_key.as_ref(),
-        auction.sale_token.as_ref(),
-        &[auction.bump],
-    ];
-    let signer_seeds = &[&seeds[..]];
-
-    let cpi_accounts = anchor_spl::token::Transfer {
-        from: ctx.accounts.vault_sale_token.to_account_info(),
-        to: ctx.accounts.user_sale_token.to_account_info(),
-        authority: auction.to_account_info(),
-    };
-    let cpi_program = ctx.accounts.token_program.to_account_info();
-    let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds);
-    anchor_spl::token::transfer(cpi_ctx, sale_token_to_claim)?;
-
-    msg!(
-        "Claimed {} sale tokens (partial) from bin {} by user {} (fee: {})",
-        sale_token_to_claim,
-        committed.bin_id,
-        ctx.accounts.user.key(),
-        claim_fee
-    );
-    Ok(())
-}
-
-/// Admin withdraws funds from auction
-pub fn withdraw_funds(ctx: Context<WithdrawFunds>, bin_id: u8) -> Result<()> {
-    let auction = &mut ctx.accounts.auction;
-    let current_time = Clock::get()?.unix_timestamp;
-
-    // Timing validation - can only withdraw after claim period starts
-    if current_time < auction.claim_start_time {
-        return Err(ResetErrorCode::ClaimNotStarted.into());
-    }
-
-    // Authorization validation - ensure authority signed
-    if auction.authority != ctx.accounts.authority.key() {
-        return Err(ResetErrorCode::Unauthorized.into());
-    }
-
-    // Get the bin and validate
+    // Get the auction bin and update state
     let bin = auction.get_bin_mut(bin_id)?;
 
-    // Check if funds have already been withdrawn for this bin
-    if bin.funds_withdrawn {
-        return Err(ResetErrorCode::InvalidAuctionState.into());
-    }
+    // Update committed account (keep entry even if it becomes 0)
+    committed_bin.payment_token_committed -= payment_token_reverted;
 
-    // Calculate amounts to withdraw
-    let payment_tokens_to_withdraw = bin.payment_token_raised;
+    // Update bin state
+    bin.payment_token_raised -= payment_token_reverted;
 
-    // Calculate sale tokens to withdraw (unsold tokens)
-    let total_sale_tokens_for_bin = bin
-        .payment_token_cap
-        .checked_div(bin.sale_token_price)
-        .ok_or(ResetErrorCode::DivisionByZero)?;
+    // Transfer payment tokens back to user
+    let auction_key = auction.key();
+    let vault_seeds = &[
+        VAULT_PAYMENT_SEED,
+        auction_key.as_ref(),
+        &[auction.vault_payment_bump],
+    ];
 
-    let sale_tokens_to_withdraw = total_sale_tokens_for_bin
-        .checked_sub(bin.sale_token_claimed)
-        .ok_or(ResetErrorCode::MathUnderflow)?;
-
-    // Mark funds as withdrawn to prevent double withdrawal
-    bin.funds_withdrawn = true;
-
-    // Transfer payment tokens from vault to authority (if any raised)
-    if payment_tokens_to_withdraw > 0 {
-        let auction_key = auction.key();
-        let launchpad_key = auction.launchpad;
-        let seeds = &[
-            AUCTION_SEED,
-            launchpad_key.as_ref(),
-            auction.sale_token.as_ref(),
-            &[auction.bump],
-        ];
-        let signer_seeds = &[&seeds[..]];
-
-        let cpi_accounts = anchor_spl::token::Transfer {
-            from: ctx.accounts.vault_payment_token.to_account_info(),
-            to: ctx.accounts.authority_payment_token.to_account_info(),
-            authority: auction.to_account_info(),
-        };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds);
-        anchor_spl::token::transfer(cpi_ctx, payment_tokens_to_withdraw)?;
-    }
-
-    // Transfer unsold sale tokens from vault to authority (if any unsold)
-    if sale_tokens_to_withdraw > 0 {
-        let auction_key = auction.key();
-        let launchpad_key = auction.launchpad;
-        let seeds = &[
-            AUCTION_SEED,
-            launchpad_key.as_ref(),
-            auction.sale_token.as_ref(),
-            &[auction.bump],
-        ];
-        let signer_seeds = &[&seeds[..]];
-
-        let cpi_accounts = anchor_spl::token::Transfer {
-            from: ctx.accounts.vault_sale_token.to_account_info(),
-            to: ctx.accounts.authority_sale_token.to_account_info(),
-            authority: auction.to_account_info(),
-        };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds);
-        anchor_spl::token::transfer(cpi_ctx, sale_tokens_to_withdraw)?;
-    }
+    token::transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.vault_payment_token.to_account_info(),
+                to: ctx.accounts.user_payment_token.to_account_info(),
+                authority: ctx.accounts.vault_payment_token.to_account_info(),
+            },
+            &[vault_seeds],
+        ),
+        payment_token_reverted,
+    )?;
 
     msg!(
-        "Withdrew {} payment tokens and {} unsold sale tokens from bin {} by authority {}",
-        payment_tokens_to_withdraw,
-        sale_tokens_to_withdraw,
-        bin_id,
-        ctx.accounts.authority.key()
+        "User {} decreased commitment by {} tokens from tier {}",
+        ctx.accounts.user.key(),
+        payment_token_reverted,
+        bin_id
     );
     Ok(())
 }
 
-/// Admin withdraws collected fees
-pub fn withdraw_fees(ctx: Context<WithdrawFees>, bin_id: u8) -> Result<()> {
-    let auction = &mut ctx.accounts.auction;
+/// User claims tokens with flexible amounts (merged claim functionality)
+pub fn claim(
+    ctx: Context<Claim>,
+    bin_id: u8,
+    sale_token_to_claim: u64,
+    payment_token_to_refund: u64,
+) -> Result<()> {
     let current_time = Clock::get()?.unix_timestamp;
 
-    // Timing validation - can only withdraw after claim period starts
-    if current_time < auction.claim_start_time {
+    // Store keys and values before borrowing mutably
+    let auction_key = ctx.accounts.auction.key();
+    let vault_sale_bump = ctx.accounts.auction.vault_sale_bump;
+    let vault_payment_bump = ctx.accounts.auction.vault_payment_bump;
+    let claim_start_time = ctx.accounts.auction.claim_start_time;
+    let user_key = ctx.accounts.user.key();
+    let committed_user = ctx.accounts.committed.user;
+
+    // Timing validation - can only claim after claim period starts
+    if current_time < claim_start_time {
         return Err(ResetErrorCode::ClaimNotStarted.into());
     }
 
-    // Authorization validation - ensure authority signed
+    // Validate user owns this commitment
+    if committed_user != user_key {
+        return Err(ResetErrorCode::Unauthorized.into());
+    }
+
+    let auction = &mut ctx.accounts.auction;
+    let committed = &mut ctx.accounts.committed;
+
+    // Find the specific bin commitment
+    let committed_bin = committed
+        .find_bin_mut(bin_id)
+        .ok_or(ResetErrorCode::InvalidBinId)?;
+
+    // Get the auction bin for calculations
+    let bin = auction.get_bin_mut(bin_id)?;
+
+    // Calculate what user is entitled to based on allocation algorithm
+    // Convert user's payment commitment to sale tokens they want
+    let user_desired_sale_tokens = committed_bin.payment_token_committed / bin.sale_token_price;
+
+    // Calculate total sale tokens demanded by all users
+    let total_sale_tokens_demanded = bin.payment_token_raised / bin.sale_token_price;
+
+    let total_sale_tokens_entitled = if total_sale_tokens_demanded <= bin.sale_token_cap {
+        // Undersubscribed: user gets all they want
+        user_desired_sale_tokens
+    } else {
+        // Oversubscribed: user gets proportional allocation
+        (user_desired_sale_tokens as u128 * bin.sale_token_cap as u128
+            / total_sale_tokens_demanded as u128) as u64
+    };
+
+    let total_payment_refund_entitled = if total_sale_tokens_demanded > bin.sale_token_cap {
+        // Oversubscribed: refund the excess payment
+        let effective_payment = total_sale_tokens_entitled * bin.sale_token_price;
+        committed_bin.payment_token_committed - effective_payment
+    } else {
+        0
+    };
+
+    // Calculate remaining claimable amounts
+    let remaining_sale_tokens =
+        total_sale_tokens_entitled.saturating_sub(committed_bin.sale_token_claimed);
+    let remaining_payment_refund = total_payment_refund_entitled; // Assuming no partial refunds tracked yet
+
+    // Validate requested amounts don't exceed entitlements
+    if sale_token_to_claim > remaining_sale_tokens {
+        return Err(ResetErrorCode::InsufficientBalance.into());
+    }
+    if payment_token_to_refund > remaining_payment_refund {
+        return Err(ResetErrorCode::InsufficientBalance.into());
+    }
+
+    // Transfer sale tokens if requested
+    if sale_token_to_claim > 0 {
+        let vault_sale_seeds = &[VAULT_SALE_SEED, auction_key.as_ref(), &[vault_sale_bump]];
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.vault_sale_token.to_account_info(),
+                    to: ctx.accounts.user_sale_token.to_account_info(),
+                    authority: ctx.accounts.vault_sale_token.to_account_info(),
+                },
+                &[vault_sale_seeds],
+            ),
+            sale_token_to_claim,
+        )?;
+
+        // Update state
+        committed_bin.sale_token_claimed += sale_token_to_claim;
+        bin.sale_token_claimed += sale_token_to_claim;
+    }
+
+    // Transfer payment token refund if requested
+    if payment_token_to_refund > 0 {
+        let vault_payment_seeds = &[
+            VAULT_PAYMENT_SEED,
+            auction_key.as_ref(),
+            &[vault_payment_bump],
+        ];
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.vault_payment_token.to_account_info(),
+                    to: ctx.accounts.user_payment_token.to_account_info(),
+                    authority: ctx.accounts.vault_payment_token.to_account_info(),
+                },
+                &[vault_payment_seeds],
+            ),
+            payment_token_to_refund,
+        )?;
+    }
+
+    // Check if this bin is fully claimed
+    let current_bin_fully_claimed = committed_bin.sale_token_claimed >= total_sale_tokens_entitled
+        && payment_token_to_refund >= remaining_payment_refund;
+
+    if current_bin_fully_claimed {
+        // Check if all bins are fully claimed
+        let all_bins_fully_claimed = committed.bins.iter().all(|bin| {
+            // Calculate entitlements for this bin
+            let bin_data = auction.get_bin(bin.bin_id).unwrap();
+            let bin_desired_sale_tokens = bin.payment_token_committed / bin_data.sale_token_price;
+            let bin_total_demanded = bin_data.payment_token_raised / bin_data.sale_token_price;
+
+            let bin_entitled_sale_tokens = if bin_total_demanded <= bin_data.sale_token_cap {
+                bin_desired_sale_tokens
+            } else {
+                (bin_desired_sale_tokens as u128 * bin_data.sale_token_cap as u128
+                    / bin_total_demanded as u128) as u64
+            };
+
+            let bin_entitled_refund = if bin_total_demanded > bin_data.sale_token_cap {
+                let effective_payment = bin_entitled_sale_tokens * bin_data.sale_token_price;
+                bin.payment_token_committed - effective_payment
+            } else {
+                0
+            };
+
+            // Check if this bin is fully claimed
+            bin.sale_token_claimed >= bin_entitled_sale_tokens && bin_entitled_refund == 0
+        });
+
+        if all_bins_fully_claimed {
+            // Close the committed account and return the rent to the user
+            let committed_account_info = ctx.accounts.committed.to_account_info();
+            let dest_account_info = ctx.accounts.user.to_account_info();
+
+            let rent_lamports = committed_account_info.lamports();
+            **committed_account_info.try_borrow_mut_lamports()? = 0;
+            **dest_account_info.try_borrow_mut_lamports()? = dest_account_info
+                .lamports()
+                .checked_add(rent_lamports)
+                .ok_or(ResetErrorCode::MathOverflow)?;
+
+            // Zero out the account data
+            let mut committed_data = committed_account_info.try_borrow_mut_data()?;
+            for byte in committed_data.iter_mut() {
+                *byte = 0;
+            }
+
+            msg!(
+                "User {} fully claimed all bins - account closed and rent returned",
+                user_key
+            );
+        } else {
+            msg!(
+                "User {} fully claimed bin {} but still has pending claims in other bins",
+                user_key,
+                bin_id
+            );
+        }
+    }
+
+    msg!(
+        "User {} claimed {} sale tokens and {} payment refund from tier {}",
+        ctx.accounts.user.key(),
+        sale_token_to_claim,
+        payment_token_to_refund,
+        bin_id
+    );
+    Ok(())
+}
+
+/// Admin withdraws funds from all auction tiers (simplified - no bin_id)
+pub fn withdraw_funds(ctx: Context<WithdrawFunds>) -> Result<()> {
+    let current_time = Clock::get()?.unix_timestamp;
+    let auction = &mut ctx.accounts.auction;
+
+    // Timing validation - can withdraw after commit period ends
+    if current_time <= auction.commit_end_time {
+        return Err(ResetErrorCode::AuctionNotStarted.into());
+    }
+
+    // Validate authority
     if auction.authority != ctx.accounts.authority.key() {
         return Err(ResetErrorCode::Unauthorized.into());
     }
 
-    // Get the bin and validate
-    let bin = auction.get_bin(bin_id)?;
+    let mut total_payment_to_withdraw = 0u64;
+    let mut total_unsold_sale_tokens = 0u64;
 
-    // Calculate total sale tokens for this bin
-    let total_sale_tokens_for_bin = bin
-        .payment_token_cap
-        .checked_div(bin.sale_token_price)
-        .ok_or(ResetErrorCode::DivisionByZero)?;
+    for bin in auction.bins.iter_mut() {
+        // Calculate amounts to withdraw from all bins
+        let total_sale_tokens_demanded = bin.payment_token_raised / bin.sale_token_price;
+        let sale_tokens_sold = std::cmp::min(total_sale_tokens_demanded, bin.sale_token_cap);
+        let payment_amount = sale_tokens_sold * bin.sale_token_price;
+        let unsold_sale_tokens = bin.sale_token_cap - sale_tokens_sold;
 
-    // Ensure all tokens have been claimed before withdrawing fees
-    // This prevents fee withdrawal while users can still claim
-    if bin.sale_token_claimed < total_sale_tokens_for_bin {
-        return Err(ResetErrorCode::InvalidAuctionState.into());
+        total_payment_to_withdraw += payment_amount;
+        total_unsold_sale_tokens += unsold_sale_tokens;
     }
 
-    // Get the auction account's SOL balance (fees collected)
-    let auction_account_info = auction.to_account_info();
-    let fees_to_withdraw = auction_account_info.lamports();
+    // Transfer payment tokens if any
+    if total_payment_to_withdraw > 0 {
+        let auction_key = auction.key();
+        let vault_payment_seeds = &[
+            VAULT_PAYMENT_SEED,
+            auction_key.as_ref(),
+            &[auction.vault_payment_bump],
+        ];
 
-    // Ensure there are fees to withdraw
-    if fees_to_withdraw == 0 {
-        return Err(ResetErrorCode::InvalidAmount.into());
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.vault_payment_token.to_account_info(),
+                    to: ctx.accounts.authority_payment_token.to_account_info(),
+                    authority: ctx.accounts.vault_payment_token.to_account_info(),
+                },
+                &[vault_payment_seeds],
+            ),
+            total_payment_to_withdraw,
+        )?;
     }
 
-    // Transfer all SOL from auction account to authority
-    **auction_account_info.try_borrow_mut_lamports()? = 0;
-    **ctx.accounts.authority.try_borrow_mut_lamports()? = ctx
-        .accounts
-        .authority
-        .lamports()
-        .checked_add(fees_to_withdraw)
-        .ok_or(ResetErrorCode::MathOverflow)?;
+    // Transfer unsold sale tokens if any
+    if total_unsold_sale_tokens > 0 {
+        let auction_key = auction.key();
+        let vault_sale_seeds = &[
+            VAULT_SALE_SEED,
+            auction_key.as_ref(),
+            &[auction.vault_sale_bump],
+        ];
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.vault_sale_token.to_account_info(),
+                    to: ctx.accounts.authority_sale_token.to_account_info(),
+                    authority: ctx.accounts.vault_sale_token.to_account_info(),
+                },
+                &[vault_sale_seeds],
+            ),
+            total_unsold_sale_tokens,
+        )?;
+    }
 
     msg!(
-        "Withdrew {} SOL fees from bin {} by authority {}",
-        fees_to_withdraw,
-        bin_id,
-        ctx.accounts.authority.key()
+        "Authority withdrew {} payment tokens and {} unsold sale tokens from all tiers",
+        total_payment_to_withdraw,
+        total_unsold_sale_tokens
     );
+    Ok(())
+}
+
+/// Admin withdraws collected fees from all tiers (simplified - no bin_id)
+pub fn withdraw_fees(ctx: Context<WithdrawFees>) -> Result<()> {
+    let auction = &mut ctx.accounts.auction;
+
+    // Validate authority
+    if auction.authority != ctx.accounts.authority.key() {
+        return Err(ResetErrorCode::Unauthorized.into());
+    }
+
+    // Check if fees are enabled
+    let fee_rate = match auction.extensions.claim_fee_rate {
+        Some(rate) => rate,
+        None => {
+            msg!("No fees configured for this auction");
+            return Ok(());
+        }
+    };
+
+    let mut total_fees_to_withdraw = 0u64;
+
+    // Calculate total fees from all bins
+    for bin in auction.bins.iter() {
+        // Calculate fees based on claimed sale tokens
+        let fees_from_bin = (bin.sale_token_claimed as u128 * fee_rate as u128 / 10000) as u64; // Assuming fee_rate is in basis points
+        total_fees_to_withdraw += fees_from_bin;
+    }
+
+    // Transfer fees if any
+    if total_fees_to_withdraw > 0 {
+        let auction_key = auction.key();
+        let vault_sale_seeds = &[
+            VAULT_SALE_SEED,
+            auction_key.as_ref(),
+            &[auction.vault_sale_bump],
+        ];
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.vault_payment_token.to_account_info(),
+                    to: ctx.accounts.fee_recipient_account.to_account_info(),
+                    authority: ctx.accounts.vault_payment_token.to_account_info(),
+                },
+                &[vault_sale_seeds],
+            ),
+            total_fees_to_withdraw,
+        )?;
+
+        msg!(
+            "Authority withdrew {} fee tokens to recipient {}",
+            total_fees_to_withdraw,
+            ctx.accounts.fee_recipient_account.key()
+        );
+    } else {
+        msg!("No fees to withdraw");
+    }
+
     Ok(())
 }
 
 /// Admin sets new price for a tier
 pub fn set_price(ctx: Context<SetPrice>, bin_id: u8, new_price: u64) -> Result<()> {
     let auction = &mut ctx.accounts.auction;
-    let current_time = Clock::get()?.unix_timestamp;
+    let bin = auction.get_bin_mut(bin_id)?;
 
-    // Authorization validation - ensure authority signed
-    if auction.authority != ctx.accounts.authority.key() {
-        return Err(ResetErrorCode::Unauthorized.into());
-    }
-
-    // Timing validation - can only set price before commit period starts
-    if current_time >= auction.commit_start_time {
-        return Err(ResetErrorCode::InvalidTimeRange.into());
-    }
-
-    // Price validation
     if new_price == 0 {
         return Err(ResetErrorCode::InvalidPrice.into());
     }
 
-    // Get the bin and update price
-    let bin = auction.get_bin_mut(bin_id)?;
-    let old_price = bin.sale_token_price;
     bin.sale_token_price = new_price;
-
-    msg!(
-        "Updated price for bin {} from {} to {} by authority {}",
-        bin_id,
-        old_price,
-        new_price,
-        ctx.accounts.authority.key()
-    );
+    msg!("Price for tier {} updated to {}", bin_id, new_price);
     Ok(())
 }
 
-// Context structures for each instruction
-
-#[derive(Accounts)]
-pub struct Initialize<'info> {
-    #[account(mut)]
-    pub authority: Signer<'info>,
-
-    #[account(
-        init,
-        payer = authority,
-        space = Launchpad::SPACE,
-        seeds = [LAUNCHPAD_SEED],
-        bump
-    )]
-    pub launchpad: Account<'info, Launchpad>,
-
-    pub system_program: Program<'info, System>,
+/// Get the hardcoded LaunchpadAdmin public key
+pub fn get_launchpad_admin() -> Result<Pubkey> {
+    Ok(LAUNCHPAD_ADMIN)
 }
 
-// TODO instruction(bins.len())
+// Context structures
+
 #[derive(Accounts)]
 pub struct InitAuction<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
     #[account(
-        mut,
-        has_one = authority,
-        seeds = [LAUNCHPAD_SEED],
-        bump = launchpad.bump
-    )]
-    pub launchpad: Account<'info, Launchpad>,
-
-    #[account(
         init,
         payer = authority,
-        space = Auction::space_for_bins(100), // Default space for 100 bins
-        seeds = [AUCTION_SEED, launchpad.key().as_ref(), sale_token_mint.key().as_ref()],
+        space = Auction::space_for_bins(100),
+        seeds = [AUCTION_SEED, sale_token_mint.key().as_ref()],
         bump
     )]
     pub auction: Account<'info, Auction>,
@@ -763,20 +734,40 @@ pub struct InitAuction<'info> {
     pub sale_token_mint: Account<'info, Mint>,
     pub payment_token_mint: Account<'info, Mint>,
 
-    /// Vault to hold sale tokens
+    /// Sale token seller's account (source for initial vault funding)
     #[account(
-        constraint = vault_sale_token.mint == sale_token_mint.key(),
-        constraint = vault_sale_token.owner == authority.key()
+        mut,
+        constraint = sale_token_seller.mint == sale_token_mint.key()
+    )]
+    pub sale_token_seller: Account<'info, TokenAccount>,
+
+    /// Authority of the sale token seller account
+    #[account(mut)]
+    pub sale_token_seller_authority: Signer<'info>,
+
+    /// Vault to hold sale tokens (created as PDA)
+    #[account(
+        init,
+        payer = authority,
+        token::mint = sale_token_mint,
+        token::authority = vault_sale_token,
+        seeds = [VAULT_SALE_SEED, auction.key().as_ref()],
+        bump
     )]
     pub vault_sale_token: Account<'info, TokenAccount>,
 
-    /// Vault to hold payment tokens
+    /// Vault to hold payment tokens (created as PDA)
     #[account(
-        constraint = vault_payment_token.mint == payment_token_mint.key(),
-        constraint = vault_payment_token.owner == authority.key()
+        init,
+        payer = authority,
+        token::mint = payment_token_mint,
+        token::authority = vault_payment_token,
+        seeds = [VAULT_PAYMENT_SEED, auction.key().as_ref()],
+        bump
     )]
     pub vault_payment_token: Account<'info, TokenAccount>,
 
+    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
 
@@ -801,7 +792,8 @@ pub struct Commit<'info> {
 
     #[account(
         mut,
-        constraint = vault_payment_token.key() == auction.vault_payment_token
+        seeds = [VAULT_PAYMENT_SEED, auction.key().as_ref()],
+        bump = auction.vault_payment_bump
     )]
     pub vault_payment_token: Account<'info, TokenAccount>,
 
@@ -810,7 +802,7 @@ pub struct Commit<'info> {
 }
 
 #[derive(Accounts)]
-pub struct RevertCommit<'info> {
+pub struct DecreaseCommit<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
 
@@ -823,7 +815,11 @@ pub struct RevertCommit<'info> {
     #[account(mut)]
     pub user_payment_token: Account<'info, TokenAccount>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [VAULT_PAYMENT_SEED, auction.key().as_ref()],
+        bump = auction.vault_payment_bump
+    )]
     pub vault_payment_token: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
@@ -862,39 +858,21 @@ pub struct Claim<'info> {
 
     #[account(
         mut,
-        constraint = vault_sale_token.key() == auction.vault_sale_token
+        seeds = [VAULT_SALE_SEED, auction.key().as_ref()],
+        bump = auction.vault_sale_bump
     )]
     pub vault_sale_token: Account<'info, TokenAccount>,
 
     #[account(
         mut,
-        constraint = vault_payment_token.key() == auction.vault_payment_token
+        seeds = [VAULT_PAYMENT_SEED, auction.key().as_ref()],
+        bump = auction.vault_payment_bump
     )]
     pub vault_payment_token: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct ClaimAmount<'info> {
-    #[account(mut)]
-    pub user: Signer<'info>,
-
-    #[account(mut)]
-    pub auction: Account<'info, Auction>,
-
-    #[account(mut)]
-    pub committed: Account<'info, Committed>,
-
-    #[account(mut)]
-    pub user_sale_token: Account<'info, TokenAccount>,
-
-    #[account(mut)]
-    pub vault_sale_token: Account<'info, TokenAccount>,
-
-    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
@@ -908,10 +886,18 @@ pub struct WithdrawFunds<'info> {
     )]
     pub auction: Account<'info, Auction>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [VAULT_SALE_SEED, auction.key().as_ref()],
+        bump = auction.vault_sale_bump
+    )]
     pub vault_sale_token: Account<'info, TokenAccount>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        seeds = [VAULT_PAYMENT_SEED, auction.key().as_ref()],
+        bump = auction.vault_payment_bump
+    )]
     pub vault_payment_token: Account<'info, TokenAccount>,
 
     #[account(mut)]
@@ -934,7 +920,18 @@ pub struct WithdrawFees<'info> {
     )]
     pub auction: Account<'info, Auction>,
 
-    pub system_program: Program<'info, System>,
+    #[account(
+        mut,
+        seeds = [VAULT_PAYMENT_SEED, auction.key().as_ref()],
+        bump = auction.vault_payment_bump
+    )]
+    pub vault_payment_token: Account<'info, TokenAccount>,
+
+    /// CHECK: Fee recipient can be any account
+    #[account(mut)]
+    pub fee_recipient_account: AccountInfo<'info>,
+
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]
@@ -947,4 +944,9 @@ pub struct SetPrice<'info> {
         has_one = authority
     )]
     pub auction: Account<'info, Auction>,
+}
+
+#[derive(Accounts)]
+pub struct GetLaunchpadAdmin {
+    // No accounts needed for this read-only instruction
 }

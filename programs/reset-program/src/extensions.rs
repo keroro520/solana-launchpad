@@ -40,12 +40,12 @@ impl ExtensionValidator {
         Ok(())
     }
 
-    /// Check if user's commitment is within the cap or has custody signature
+    /// Check if user's total commitment across all bins is within the cap or has custody signature
     pub fn validate_commit_cap(
         auction: &Auction,
         user: &Pubkey,
         custody: &Pubkey,
-        current_committed: u64,
+        committed: Option<&Committed>,
         new_commitment: u64,
     ) -> Result<()> {
         // If no commit cap, allow unlimited commitment
@@ -55,8 +55,13 @@ impl ExtensionValidator {
                 return Ok(());
             }
 
+            // Calculate current total commitment across all bins
+            let current_total = committed
+                .map(|c| c.total_payment_committed())
+                .unwrap_or(0);
+
             // Check if total commitment would exceed cap
-            let total_commitment = current_committed
+            let total_commitment = current_total
                 .checked_add(new_commitment)
                 .ok_or(ResetErrorCode::MathOverflow)?;
 

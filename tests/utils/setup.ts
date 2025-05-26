@@ -32,33 +32,31 @@ export interface TestContext {
   user2: Keypair;
   saleTokenMint: PublicKey;
   paymentTokenMint: PublicKey;
-  launchpadPda: PublicKey;
-  launchpadBump: number;
 }
 
 export interface AuctionContext extends TestContext {
   auctionPda: PublicKey;
   auctionBump: number;
-  vaultSaleToken: PublicKey;
-  vaultPaymentToken: PublicKey;
-  authorityPaymentToken: PublicKey;
-  authoritySaleToken: PublicKey;
-  user1PaymentToken: PublicKey;
-  user1SaleToken: PublicKey;
-  user2PaymentToken: PublicKey;
-  user2SaleToken: PublicKey;
+  vault_sale_token: PublicKey;
+  vault_payment_token: PublicKey;
+  authority_payment_token: PublicKey;
+  sale_token_seller: PublicKey; // renamed from authoritySaleToken
+  user1_payment_token: PublicKey;
+  user1_sale_token: PublicKey;
+  user2_payment_token: PublicKey;
+  user2_sale_token: PublicKey;
   custody: Keypair;
+  associated_token_program: PublicKey;
 }
 
 export interface CommitmentContext extends AuctionContext {
-  user1CommittedPda: PublicKey;
-  user1CommittedBump: number;
-  user2CommittedPda: PublicKey;
-  user2CommittedBump: number;
+  user1_committed_pda: PublicKey;
+  user1_committed_bump: number;
+  user2_committed_pda: PublicKey;
+  user2_committed_bump: number;
 }
 
 // Constants
-export const LAUNCHPAD_SEED = "reset";
 export const AUCTION_SEED = "auction";
 export const COMMITTED_SEED = "committed";
 
@@ -77,11 +75,11 @@ export const TEST_CONFIG = {
   BINS: [
     {
       saleTokenPrice: new BN(1_000_000), // 1 payment token = 1 sale token (6 decimals)
-      paymentTokenCap: new BN(50_000_000), // 50M payment tokens
+      saleTokenCap: new BN(50_000_000), // 50M sale tokens
     },
     {
       saleTokenPrice: new BN(2_000_000), // 2 payment tokens = 1 sale token
-      paymentTokenCap: new BN(100_000_000), // 100M payment tokens
+      saleTokenCap: new BN(50_000_000), // 50M sale tokens
     },
   ],
 };
@@ -129,12 +127,6 @@ export async function setupTestContext(): Promise<TestContext> {
     6 // 6 decimals
   );
 
-  // Find launchpad PDA
-  const [launchpadPda, launchpadBump] = PublicKey.findProgramAddressSync(
-    [Buffer.from(LAUNCHPAD_SEED)],
-    program.programId
-  );
-
   return {
     program,
     provider,
@@ -144,24 +136,7 @@ export async function setupTestContext(): Promise<TestContext> {
     user2,
     saleTokenMint,
     paymentTokenMint,
-    launchpadPda,
-    launchpadBump,
   };
-}
-
-/**
- * Initialize the launchpad
- */
-export async function initializeLaunchpad(ctx: TestContext): Promise<void> {
-  await ctx.program.methods
-    .initialize()
-    .accounts({
-      authority: ctx.authority.publicKey,
-      launchpad: ctx.launchpadPda,
-      systemProgram: SystemProgram.programId,
-    })
-    .signers([ctx.authority])
-    .rpc();
 }
 
 /**
@@ -175,40 +150,35 @@ export async function setupAuctionContext(ctx: TestContext): Promise<AuctionCont
   await ctx.connection.requestAirdrop(custody.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
   await new Promise(resolve => setTimeout(resolve, 1000));
 
-  // Find auction PDA
+  // Find auction PDA (simplified: just auction + sale_token_mint)
   const [auctionPda, auctionBump] = PublicKey.findProgramAddressSync(
     [
       Buffer.from(AUCTION_SEED),
-      ctx.launchpadPda.toBuffer(),
       ctx.saleTokenMint.toBuffer(),
     ],
     ctx.program.programId
   );
 
-  // Create vault token accounts
-  const vaultSaleToken = await createAccount(
-    ctx.connection,
-    ctx.authority,
-    ctx.saleTokenMint,
-    ctx.authority.publicKey
+  // Find vault PDAs
+  const [vault_sale_token] = PublicKey.findProgramAddressSync(
+    [Buffer.from("vault_sale"), auctionPda.toBuffer()],
+    ctx.program.programId
   );
 
-  const vaultPaymentToken = await createAccount(
-    ctx.connection,
-    ctx.authority,
-    ctx.paymentTokenMint,
-    ctx.authority.publicKey
+  const [vault_payment_token] = PublicKey.findProgramAddressSync(
+    [Buffer.from("vault_payment"), auctionPda.toBuffer()],
+    ctx.program.programId
   );
 
   // Create authority token accounts
-  const authorityPaymentToken = await createAccount(
+  const authority_payment_token = await createAccount(
     ctx.connection,
     ctx.authority,
     ctx.paymentTokenMint,
     ctx.authority.publicKey
   );
 
-  const authoritySaleToken = await createAccount(
+  const sale_token_seller = await createAccount(
     ctx.connection,
     ctx.authority,
     ctx.saleTokenMint,
@@ -216,38 +186,37 @@ export async function setupAuctionContext(ctx: TestContext): Promise<AuctionCont
   );
 
   // Create user token accounts
-  const user1PaymentToken = await createAccount(
+  const user1_payment_token = await createAccount(
     ctx.connection,
     ctx.authority,
     ctx.paymentTokenMint,
     ctx.user1.publicKey
   );
 
-  const user1SaleToken = await createAccount(
+  const user1_sale_token = await createAccount(
     ctx.connection,
     ctx.authority,
     ctx.saleTokenMint,
     ctx.user1.publicKey
   );
 
-  const user2PaymentToken = await createAccount(
+  const user2_payment_token = await createAccount(
     ctx.connection,
     ctx.authority,
     ctx.paymentTokenMint,
     ctx.user2.publicKey
   );
 
-  const user2SaleToken = await createAccount(
+  const user2_sale_token = await createAccount(
     ctx.connection,
     ctx.authority,
     ctx.saleTokenMint,
     ctx.user2.publicKey
   );
 
-  // Mint tokens to accounts
-  // Mint sale tokens to vault (for auction)
+  // Mint sale tokens to authority (for initial vault funding)
   const totalSaleTokensNeeded = TEST_CONFIG.BINS.reduce(
-    (sum, bin) => sum.add(bin.paymentTokenCap.div(bin.saleTokenPrice)),
+    (sum, bin) => sum.add(bin.saleTokenCap),
     new BN(0)
   );
   
@@ -255,7 +224,7 @@ export async function setupAuctionContext(ctx: TestContext): Promise<AuctionCont
     ctx.connection,
     ctx.authority,
     ctx.saleTokenMint,
-    vaultSaleToken,
+    sale_token_seller,
     ctx.authority,
     totalSaleTokensNeeded.toNumber()
   );
@@ -266,7 +235,7 @@ export async function setupAuctionContext(ctx: TestContext): Promise<AuctionCont
       ctx.connection,
       ctx.authority,
       ctx.paymentTokenMint,
-      user1PaymentToken,
+      user1_payment_token,
       ctx.authority,
       TEST_CONFIG.USER_PAYMENT_TOKEN_AMOUNT.toNumber()
     ),
@@ -274,7 +243,7 @@ export async function setupAuctionContext(ctx: TestContext): Promise<AuctionCont
       ctx.connection,
       ctx.authority,
       ctx.paymentTokenMint,
-      user2PaymentToken,
+      user2_payment_token,
       ctx.authority,
       TEST_CONFIG.USER_PAYMENT_TOKEN_AMOUNT.toNumber()
     ),
@@ -284,15 +253,16 @@ export async function setupAuctionContext(ctx: TestContext): Promise<AuctionCont
     ...ctx,
     auctionPda,
     auctionBump,
-    vaultSaleToken,
-    vaultPaymentToken,
-    authorityPaymentToken,
-    authoritySaleToken,
-    user1PaymentToken,
-    user1SaleToken,
-    user2PaymentToken,
-    user2SaleToken,
+    vault_sale_token,
+    vault_payment_token,
+    authority_payment_token,
+    sale_token_seller,
+    user1_payment_token,
+    user1_sale_token,
+    user2_payment_token,
+    user2_sale_token,
     custody,
+    associated_token_program: ASSOCIATED_TOKEN_PROGRAM_ID,
   };
 }
 
@@ -307,9 +277,9 @@ export async function initializeAuction(ctx: AuctionContext): Promise<void> {
 
   // Extension parameters (optional)
   const extensionParams = {
-    whitelistAuthority: null,
-    commitCapPerUser: null,
-    claimFeeRate: null,
+    whitelist_authority: null,
+    commit_cap_per_user: null,
+    claim_fee_rate: null,
   };
 
   await ctx.program.methods
@@ -323,81 +293,68 @@ export async function initializeAuction(ctx: AuctionContext): Promise<void> {
     )
     .accounts({
       authority: ctx.authority.publicKey,
-      launchpad: ctx.launchpadPda,
       auction: ctx.auctionPda,
-      saleTokenMint: ctx.saleTokenMint,
-      paymentTokenMint: ctx.paymentTokenMint,
-      vaultSaleToken: ctx.vaultSaleToken,
-      vaultPaymentToken: ctx.vaultPaymentToken,
-      systemProgram: SystemProgram.programId,
+      sale_token_mint: ctx.saleTokenMint,
+      payment_token_mint: ctx.paymentTokenMint,
+      sale_token_seller: ctx.sale_token_seller,
+      sale_token_seller_authority: ctx.authority.publicKey,
+      vault_sale_token: ctx.vault_sale_token,
+      vault_payment_token: ctx.vault_payment_token,
+      token_program: TOKEN_PROGRAM_ID,
+      system_program: SystemProgram.programId,
     })
     .signers([ctx.authority])
     .rpc();
 }
 
 /**
- * Setup commitment context with user commitment PDAs
+ * Setup commitment context with committed PDAs
  */
 export async function setupCommitmentContext(ctx: AuctionContext): Promise<CommitmentContext> {
-  // Find user commitment PDAs - new seed structure: ["committed", auction_key, user_key, bin_id]
-  const [user1CommittedPda, user1CommittedBump] = PublicKey.findProgramAddressSync(
+  // Find committed PDAs for users (no bin_id in new structure)
+  const [user1_committed_pda, user1_committed_bump] = PublicKey.findProgramAddressSync(
     [
       Buffer.from(COMMITTED_SEED),
       ctx.auctionPda.toBuffer(),
       ctx.user1.publicKey.toBuffer(),
-      Buffer.from([0]), // bin_id = 0
     ],
     ctx.program.programId
   );
 
-  const [user2CommittedPda, user2CommittedBump] = PublicKey.findProgramAddressSync(
+  const [user2_committed_pda, user2_committed_bump] = PublicKey.findProgramAddressSync(
     [
       Buffer.from(COMMITTED_SEED),
       ctx.auctionPda.toBuffer(),
       ctx.user2.publicKey.toBuffer(),
-      Buffer.from([1]), // bin_id = 1
     ],
     ctx.program.programId
   );
 
   return {
     ...ctx,
-    user1CommittedPda,
-    user1CommittedBump,
-    user2CommittedPda,
-    user2CommittedBump,
+    user1_committed_pda,
+    user1_committed_bump,
+    user2_committed_pda,
+    user2_committed_bump,
   };
 }
 
-/**
- * Wait for auction to start
- */
 export async function waitForAuctionStart(): Promise<void> {
-  // Wait for auction to start
+  // Wait for auction to start (TEST_CONFIG.COMMIT_START_OFFSET seconds)
+  await new Promise(resolve => setTimeout(resolve, (TEST_CONFIG.COMMIT_START_OFFSET + 1) * 1000));
+}
+
+export async function waitForAuctionEnd(): Promise<void> {
+  // This would wait for the full auction duration
+  // For testing, we'll just wait a short time
   await new Promise(resolve => setTimeout(resolve, 2000));
 }
 
-/**
- * Wait for auction to end
- */
-export async function waitForAuctionEnd(): Promise<void> {
-  // In a real test, you'd wait for the actual auction end time
-  // For testing purposes, we'll just wait a short time
-  await new Promise(resolve => setTimeout(resolve, 1000));
-}
-
-/**
- * Wait for claim period to start
- */
 export async function waitForClaimStart(): Promise<void> {
-  // In a real test, you'd wait for the actual claim start time
-  // For testing purposes, we'll just wait a short time
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  // Wait for claim period to start
+  await new Promise(resolve => setTimeout(resolve, (TEST_CONFIG.COMMIT_START_OFFSET + TEST_CONFIG.COMMIT_DURATION + TEST_CONFIG.CLAIM_DELAY + 1) * 1000));
 }
 
-/**
- * Helper function to get token account balance
- */
 export async function getTokenBalance(
   connection: Connection,
   tokenAccount: PublicKey
@@ -406,9 +363,6 @@ export async function getTokenBalance(
   return new BN(accountInfo.amount.toString());
 }
 
-/**
- * Helper function to assert token balance
- */
 export async function assertTokenBalance(
   connection: Connection,
   tokenAccount: PublicKey,
@@ -422,39 +376,47 @@ export async function assertTokenBalance(
   );
 }
 
-/**
- * Helper function to get account data
- */
 export async function getAccountData<T>(
   program: Program<ResetProgram>,
   address: PublicKey,
   accountType: string
 ): Promise<T> {
-  const accountData = await program.account[accountType].fetch(address);
-  return accountData as T;
+  const accountInfo = await program.account[accountType].fetch(address);
+  return accountInfo as T;
 }
 
-/**
- * Calculate expected claimable amount based on allocation algorithm
- */
 export function calculateClaimableAmount(
-  userCommitted: BN,
-  totalRaised: BN,
-  tierCap: BN
-): BN {
-  if (totalRaised.lte(tierCap)) {
-    // No oversubscription
-    return userCommitted;
-  } else {
-    // Oversubscription - calculate proportional allocation
-    const allocationRatio = tierCap.mul(new BN(1_000_000_000)).div(totalRaised);
-    return userCommitted.mul(allocationRatio).div(new BN(1_000_000_000));
+  user_committed: BN,
+  auction_bin: any
+): { saleTokens: BN; refundTokens: BN } {
+  const total_raised = new BN(auction_bin.payment_token_raised.toString());
+  const tier_cap = new BN(auction_bin.sale_token_cap.toString());
+  const price = new BN(auction_bin.sale_token_price.toString());
+  
+  // Calculate sale tokens based on price
+  const max_sale_tokens = user_committed.div(price);
+
+  // If under-subscribed, user gets full commitment
+  if (total_raised.lte(tier_cap)) {
+    return {
+      saleTokens: max_sale_tokens,
+      refundTokens: new BN(0)
+    };
   }
+
+  // If over-subscribed, apply proportional allocation
+  // Use scaling factor to maintain precision
+  const scalingFactor = new BN(1_000_000_000);
+  const allocationRatio = tier_cap.mul(scalingFactor).div(total_raised);
+  const allocatedTokens = max_sale_tokens.mul(allocationRatio).div(scalingFactor);
+  const refundTokens = user_committed.sub(allocatedTokens.mul(price));
+  
+  return {
+    saleTokens: allocatedTokens,
+    refundTokens: refundTokens
+  };
 }
 
-/**
- * Calculate expected sale tokens from payment tokens
- */
 export function calculateSaleTokens(paymentTokens: BN, price: BN): BN {
   return paymentTokens.div(price);
 } 

@@ -92,7 +92,7 @@ describe("Edge Cases and Boundary Conditions", () => {
     });
 
     it("should handle exact tier capacity commitments", async () => {
-      const tierCapacity = TEST_CONFIG.BINS[0].paymentTokenCap;
+      const tierCapacity = TEST_CONFIG.BINS[0].sellTokenCap;
       const binId = 0;
 
       // This test would need a user with exactly the tier capacity

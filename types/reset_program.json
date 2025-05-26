@@ -10,7 +10,7 @@
     {
       "name": "claim",
       "docs": [
-        "User claims all allocated tokens"
+        "User claims tokens with flexible amounts (merged claim functionality)"
       ],
       "discriminator": [
         62,
@@ -144,11 +144,60 @@
         },
         {
           "name": "vault_sale_token",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  97,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "vault_payment_token",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "token_program",
@@ -163,53 +212,17 @@
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
-    },
-    {
-      "name": "claim_amount",
-      "docs": [
-        "Custody account claims specific amount (partial claiming)"
-      ],
-      "discriminator": [
-        26,
-        88,
-        45,
-        21,
-        143,
-        185,
-        0,
-        106
-      ],
-      "accounts": [
-        {
-          "name": "user",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "auction",
-          "writable": true
-        },
-        {
-          "name": "committed",
-          "writable": true
-        },
-        {
-          "name": "user_sale_token",
-          "writable": true
-        },
-        {
-          "name": "vault_sale_token",
-          "writable": true
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
       "args": [
         {
+          "name": "bin_id",
+          "type": "u8"
+        },
+        {
           "name": "sale_token_to_claim",
+          "type": "u64"
+        },
+        {
+          "name": "payment_token_to_refund",
           "type": "u64"
         }
       ]
@@ -249,7 +262,33 @@
         },
         {
           "name": "vault_payment_token",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "token_program",
@@ -272,9 +311,107 @@
       ]
     },
     {
+      "name": "decrease_commit",
+      "docs": [
+        "User decreases a commitment (renamed from revert_commit)"
+      ],
+      "discriminator": [
+        134,
+        84,
+        49,
+        225,
+        22,
+        251,
+        110,
+        176
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "auction",
+          "writable": true
+        },
+        {
+          "name": "committed",
+          "writable": true
+        },
+        {
+          "name": "user_payment_token",
+          "writable": true
+        },
+        {
+          "name": "vault_payment_token",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "bin_id",
+          "type": "u8"
+        },
+        {
+          "name": "payment_token_reverted",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "get_launchpad_admin",
+      "docs": [
+        "Get the hardcoded LaunchpadAdmin public key"
+      ],
+      "discriminator": [
+        8,
+        113,
+        195,
+        137,
+        50,
+        1,
+        35,
+        38
+      ],
+      "accounts": [],
+      "args": [],
+      "returns": "pubkey"
+    },
+    {
       "name": "init_auction",
       "docs": [
-        "Create a new auction"
+        "Create a new auction with automatic vault creation"
       ],
       "discriminator": [
         73,
@@ -290,28 +427,7 @@
         {
           "name": "authority",
           "writable": true,
-          "signer": true,
-          "relations": [
-            "launchpad"
-          ]
-        },
-        {
-          "name": "launchpad",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  115,
-                  101,
-                  116
-                ]
-              }
-            ]
-          }
+          "signer": true
         },
         {
           "name": "auction",
@@ -332,10 +448,6 @@
               },
               {
                 "kind": "account",
-                "path": "launchpad"
-              },
-              {
-                "kind": "account",
                 "path": "sale_token_mint"
               }
             ]
@@ -348,16 +460,86 @@
           "name": "payment_token_mint"
         },
         {
+          "name": "sale_token_seller",
+          "docs": [
+            "Sale token seller's account (source for initial vault funding)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "sale_token_seller_authority",
+          "docs": [
+            "Authority of the sale token seller account"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
           "name": "vault_sale_token",
           "docs": [
-            "Vault to hold sale tokens"
-          ]
+            "Vault to hold sale tokens (created as PDA)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  97,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "vault_payment_token",
           "docs": [
-            "Vault to hold payment tokens"
-          ]
+            "Vault to hold payment tokens (created as PDA)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
           "name": "system_program",
@@ -404,101 +586,6 @@
       ]
     },
     {
-      "name": "initialize",
-      "docs": [
-        "Initialize the Reset Launchpad platform"
-      ],
-      "discriminator": [
-        175,
-        175,
-        109,
-        31,
-        13,
-        152,
-        155,
-        237
-      ],
-      "accounts": [
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "launchpad",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  115,
-                  101,
-                  116
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "revert_commit",
-      "docs": [
-        "User reverts a commitment"
-      ],
-      "discriminator": [
-        157,
-        174,
-        201,
-        165,
-        187,
-        210,
-        143,
-        236
-      ],
-      "accounts": [
-        {
-          "name": "user",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "auction",
-          "writable": true
-        },
-        {
-          "name": "committed",
-          "writable": true
-        },
-        {
-          "name": "user_payment_token",
-          "writable": true
-        },
-        {
-          "name": "vault_payment_token",
-          "writable": true
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": [
-        {
-          "name": "payment_token_reverted",
-          "type": "u64"
-        }
-      ]
-    },
-    {
       "name": "set_price",
       "docs": [
         "Admin sets new price for a tier"
@@ -541,7 +628,7 @@
     {
       "name": "withdraw_fees",
       "docs": [
-        "Admin withdraws collected fees"
+        "Admin withdraws collected fees from all tiers (simplified - no bin_id)"
       ],
       "discriminator": [
         198,
@@ -567,21 +654,50 @@
           "writable": true
         },
         {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
+          "name": "vault_payment_token",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
+        },
+        {
+          "name": "fee_recipient_account",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
-      "args": [
-        {
-          "name": "bin_id",
-          "type": "u8"
-        }
-      ]
+      "args": []
     },
     {
       "name": "withdraw_funds",
       "docs": [
-        "Admin withdraws funds from auction"
+        "Admin withdraws funds from all auction tiers (simplified - no bin_id)"
       ],
       "discriminator": [
         241,
@@ -608,11 +724,60 @@
         },
         {
           "name": "vault_sale_token",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  97,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "vault_payment_token",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "authority_sale_token",
@@ -627,12 +792,7 @@
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
-      "args": [
-        {
-          "name": "bin_id",
-          "type": "u8"
-        }
-      ]
+      "args": []
     }
   ],
   "accounts": [
@@ -660,19 +820,6 @@
         16,
         150,
         18
-      ]
-    },
-    {
-      "name": "Launchpad",
-      "discriminator": [
-        247,
-        20,
-        16,
-        242,
-        203,
-        38,
-        169,
-        160
       ]
     }
   ],
@@ -773,6 +920,11 @@
       "msg": "Commit cap exceeded"
     },
     {
+      "code": 12406,
+      "name": "ExceedsTierCap",
+      "msg": "Exceeds tier cap"
+    },
+    {
       "code": 12500,
       "name": "SystemError",
       "msg": "System error"
@@ -788,7 +940,7 @@
       "name": "Auction",
       "docs": [
         "Core auction data account",
-        "PDA: [\"auction\", launchpad_key, sale_token_mint]"
+        "PDA: [\"auction\", sale_token_mint]"
       ],
       "type": {
         "kind": "struct",
@@ -796,14 +948,7 @@
           {
             "name": "authority",
             "docs": [
-              "Platform administrator (from launchpad)"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "launchpad",
-            "docs": [
-              "Reference to the launchpad account"
+              "Platform administrator"
             ],
             "type": "pubkey"
           },
@@ -818,20 +963,6 @@
             "name": "payment_token",
             "docs": [
               "Payment token mint (tokens used for payment)"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "vault_sale_token",
-            "docs": [
-              "Vault account holding sale tokens"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "vault_payment_token",
-            "docs": [
-              "Vault account holding payment tokens"
             ],
             "type": "pubkey"
           },
@@ -860,7 +991,7 @@
           {
             "name": "bins",
             "docs": [
-              "Auction tiers (up to 5 tiers inline for efficiency)"
+              "Auction tiers (up to 100 tiers)"
             ],
             "type": {
               "vec": {
@@ -880,6 +1011,17 @@
                 "name": "AuctionExtensions"
               }
             }
+          },
+          {
+            "name": "vault_sale_bump",
+            "docs": [
+              "Vault PDA bump seeds for derivation"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "vault_payment_bump",
+            "type": "u8"
           },
           {
             "name": "bump",
@@ -907,9 +1049,9 @@
             "type": "u64"
           },
           {
-            "name": "payment_token_cap",
+            "name": "sale_token_cap",
             "docs": [
-              "Maximum payment tokens this tier can raise"
+              "Maximum sale tokens this tier can sell"
             ],
             "type": "u64"
           },
@@ -926,13 +1068,6 @@
               "Sale tokens already claimed from this tier"
             ],
             "type": "u64"
-          },
-          {
-            "name": "funds_withdrawn",
-            "docs": [
-              "Whether admin has withdrawn funds from this tier"
-            ],
-            "type": "bool"
           }
         ]
       }
@@ -950,7 +1085,7 @@
             "type": "u64"
           },
           {
-            "name": "payment_token_cap",
+            "name": "sale_token_cap",
             "type": "u64"
           }
         ]
@@ -1035,19 +1170,12 @@
     {
       "name": "Committed",
       "docs": [
-        "User commitment data for a specific auction tier",
-        "PDA: [\"committed\", auction_key, user_key, bin_id]"
+        "User commitment data for all auction tiers",
+        "PDA: [\"committed\", auction_key, user_key]"
       ],
       "type": {
         "kind": "struct",
         "fields": [
-          {
-            "name": "launchpad",
-            "docs": [
-              "Reference to the launchpad account"
-            ],
-            "type": "pubkey"
-          },
           {
             "name": "auction",
             "docs": [
@@ -1063,25 +1191,17 @@
             "type": "pubkey"
           },
           {
-            "name": "bin_id",
+            "name": "bins",
             "docs": [
-              "Tier ID this commitment is for"
+              "All bins this user has committed to"
             ],
-            "type": "u8"
-          },
-          {
-            "name": "payment_token_committed",
-            "docs": [
-              "Amount of payment tokens committed"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "sale_token_claimed",
-            "docs": [
-              "Amount of sale tokens already claimed"
-            ],
-            "type": "u64"
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "CommittedBin"
+                }
+              }
+            }
           },
           {
             "name": "bump",
@@ -1094,39 +1214,33 @@
       }
     },
     {
-      "name": "Launchpad",
+      "name": "CommittedBin",
       "docs": [
-        "Reset Launchpad global state account",
-        "PDA: [\"reset\"]"
+        "Individual bin commitment data within a user's commitment"
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "authority",
+            "name": "bin_id",
             "docs": [
-              "Platform administrator with full control"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "bump",
-            "docs": [
-              "PDA bump seed"
+              "Bin ID"
             ],
             "type": "u8"
           },
           {
-            "name": "reserved",
+            "name": "payment_token_committed",
             "docs": [
-              "Reserved space for future expansion"
+              "Amount of payment tokens committed to this bin"
             ],
-            "type": {
-              "array": [
-                "u8",
-                200
-              ]
-            }
+            "type": "u64"
+          },
+          {
+            "name": "sale_token_claimed",
+            "docs": [
+              "Amount of sale tokens already claimed from this bin"
+            ],
+            "type": "u64"
           }
         ]
       }

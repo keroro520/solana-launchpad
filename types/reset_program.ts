@@ -16,7 +16,7 @@ export type ResetProgram = {
     {
       "name": "claim",
       "docs": [
-        "User claims all allocated tokens"
+        "User claims tokens with flexible amounts (merged claim functionality)"
       ],
       "discriminator": [
         62,
@@ -150,11 +150,60 @@ export type ResetProgram = {
         },
         {
           "name": "vaultSaleToken",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  97,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "vaultPaymentToken",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "tokenProgram",
@@ -169,53 +218,17 @@ export type ResetProgram = {
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
-    },
-    {
-      "name": "claimAmount",
-      "docs": [
-        "Custody account claims specific amount (partial claiming)"
-      ],
-      "discriminator": [
-        26,
-        88,
-        45,
-        21,
-        143,
-        185,
-        0,
-        106
-      ],
-      "accounts": [
-        {
-          "name": "user",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "auction",
-          "writable": true
-        },
-        {
-          "name": "committed",
-          "writable": true
-        },
-        {
-          "name": "userSaleToken",
-          "writable": true
-        },
-        {
-          "name": "vaultSaleToken",
-          "writable": true
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
       "args": [
         {
+          "name": "binId",
+          "type": "u8"
+        },
+        {
           "name": "saleTokenToClaim",
+          "type": "u64"
+        },
+        {
+          "name": "paymentTokenToRefund",
           "type": "u64"
         }
       ]
@@ -255,7 +268,33 @@ export type ResetProgram = {
         },
         {
           "name": "vaultPaymentToken",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "tokenProgram",
@@ -278,9 +317,107 @@ export type ResetProgram = {
       ]
     },
     {
+      "name": "decreaseCommit",
+      "docs": [
+        "User decreases a commitment (renamed from revert_commit)"
+      ],
+      "discriminator": [
+        134,
+        84,
+        49,
+        225,
+        22,
+        251,
+        110,
+        176
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "auction",
+          "writable": true
+        },
+        {
+          "name": "committed",
+          "writable": true
+        },
+        {
+          "name": "userPaymentToken",
+          "writable": true
+        },
+        {
+          "name": "vaultPaymentToken",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "binId",
+          "type": "u8"
+        },
+        {
+          "name": "paymentTokenReverted",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "getLaunchpadAdmin",
+      "docs": [
+        "Get the hardcoded LaunchpadAdmin public key"
+      ],
+      "discriminator": [
+        8,
+        113,
+        195,
+        137,
+        50,
+        1,
+        35,
+        38
+      ],
+      "accounts": [],
+      "args": [],
+      "returns": "pubkey"
+    },
+    {
       "name": "initAuction",
       "docs": [
-        "Create a new auction"
+        "Create a new auction with automatic vault creation"
       ],
       "discriminator": [
         73,
@@ -296,28 +433,7 @@ export type ResetProgram = {
         {
           "name": "authority",
           "writable": true,
-          "signer": true,
-          "relations": [
-            "launchpad"
-          ]
-        },
-        {
-          "name": "launchpad",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  115,
-                  101,
-                  116
-                ]
-              }
-            ]
-          }
+          "signer": true
         },
         {
           "name": "auction",
@@ -338,10 +454,6 @@ export type ResetProgram = {
               },
               {
                 "kind": "account",
-                "path": "launchpad"
-              },
-              {
-                "kind": "account",
                 "path": "saleTokenMint"
               }
             ]
@@ -354,16 +466,86 @@ export type ResetProgram = {
           "name": "paymentTokenMint"
         },
         {
+          "name": "saleTokenSeller",
+          "docs": [
+            "Sale token seller's account (source for initial vault funding)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "saleTokenSellerAuthority",
+          "docs": [
+            "Authority of the sale token seller account"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
           "name": "vaultSaleToken",
           "docs": [
-            "Vault to hold sale tokens"
-          ]
+            "Vault to hold sale tokens (created as PDA)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  97,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "vaultPaymentToken",
           "docs": [
-            "Vault to hold payment tokens"
-          ]
+            "Vault to hold payment tokens (created as PDA)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
           "name": "systemProgram",
@@ -410,101 +592,6 @@ export type ResetProgram = {
       ]
     },
     {
-      "name": "initialize",
-      "docs": [
-        "Initialize the Reset Launchpad platform"
-      ],
-      "discriminator": [
-        175,
-        175,
-        109,
-        31,
-        13,
-        152,
-        155,
-        237
-      ],
-      "accounts": [
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "launchpad",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  115,
-                  101,
-                  116
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "revertCommit",
-      "docs": [
-        "User reverts a commitment"
-      ],
-      "discriminator": [
-        157,
-        174,
-        201,
-        165,
-        187,
-        210,
-        143,
-        236
-      ],
-      "accounts": [
-        {
-          "name": "user",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "auction",
-          "writable": true
-        },
-        {
-          "name": "committed",
-          "writable": true
-        },
-        {
-          "name": "userPaymentToken",
-          "writable": true
-        },
-        {
-          "name": "vaultPaymentToken",
-          "writable": true
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": [
-        {
-          "name": "paymentTokenReverted",
-          "type": "u64"
-        }
-      ]
-    },
-    {
       "name": "setPrice",
       "docs": [
         "Admin sets new price for a tier"
@@ -547,7 +634,7 @@ export type ResetProgram = {
     {
       "name": "withdrawFees",
       "docs": [
-        "Admin withdraws collected fees"
+        "Admin withdraws collected fees from all tiers (simplified - no bin_id)"
       ],
       "discriminator": [
         198,
@@ -573,21 +660,50 @@ export type ResetProgram = {
           "writable": true
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
+          "name": "vaultPaymentToken",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
+        },
+        {
+          "name": "feeRecipientAccount",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
-      "args": [
-        {
-          "name": "binId",
-          "type": "u8"
-        }
-      ]
+      "args": []
     },
     {
       "name": "withdrawFunds",
       "docs": [
-        "Admin withdraws funds from auction"
+        "Admin withdraws funds from all auction tiers (simplified - no bin_id)"
       ],
       "discriminator": [
         241,
@@ -614,11 +730,60 @@ export type ResetProgram = {
         },
         {
           "name": "vaultSaleToken",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  115,
+                  97,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "vaultPaymentToken",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              }
+            ]
+          }
         },
         {
           "name": "authoritySaleToken",
@@ -633,12 +798,7 @@ export type ResetProgram = {
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
-      "args": [
-        {
-          "name": "binId",
-          "type": "u8"
-        }
-      ]
+      "args": []
     }
   ],
   "accounts": [
@@ -666,19 +826,6 @@ export type ResetProgram = {
         16,
         150,
         18
-      ]
-    },
-    {
-      "name": "launchpad",
-      "discriminator": [
-        247,
-        20,
-        16,
-        242,
-        203,
-        38,
-        169,
-        160
       ]
     }
   ],
@@ -779,6 +926,11 @@ export type ResetProgram = {
       "msg": "Commit cap exceeded"
     },
     {
+      "code": 12406,
+      "name": "exceedsTierCap",
+      "msg": "Exceeds tier cap"
+    },
+    {
       "code": 12500,
       "name": "systemError",
       "msg": "System error"
@@ -794,7 +946,7 @@ export type ResetProgram = {
       "name": "auction",
       "docs": [
         "Core auction data account",
-        "PDA: [\"auction\", launchpad_key, sale_token_mint]"
+        "PDA: [\"auction\", sale_token_mint]"
       ],
       "type": {
         "kind": "struct",
@@ -802,14 +954,7 @@ export type ResetProgram = {
           {
             "name": "authority",
             "docs": [
-              "Platform administrator (from launchpad)"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "launchpad",
-            "docs": [
-              "Reference to the launchpad account"
+              "Platform administrator"
             ],
             "type": "pubkey"
           },
@@ -824,20 +969,6 @@ export type ResetProgram = {
             "name": "paymentToken",
             "docs": [
               "Payment token mint (tokens used for payment)"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "vaultSaleToken",
-            "docs": [
-              "Vault account holding sale tokens"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "vaultPaymentToken",
-            "docs": [
-              "Vault account holding payment tokens"
             ],
             "type": "pubkey"
           },
@@ -866,7 +997,7 @@ export type ResetProgram = {
           {
             "name": "bins",
             "docs": [
-              "Auction tiers (up to 5 tiers inline for efficiency)"
+              "Auction tiers (up to 100 tiers)"
             ],
             "type": {
               "vec": {
@@ -886,6 +1017,17 @@ export type ResetProgram = {
                 "name": "auctionExtensions"
               }
             }
+          },
+          {
+            "name": "vaultSaleBump",
+            "docs": [
+              "Vault PDA bump seeds for derivation"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "vaultPaymentBump",
+            "type": "u8"
           },
           {
             "name": "bump",
@@ -913,9 +1055,9 @@ export type ResetProgram = {
             "type": "u64"
           },
           {
-            "name": "paymentTokenCap",
+            "name": "saleTokenCap",
             "docs": [
-              "Maximum payment tokens this tier can raise"
+              "Maximum sale tokens this tier can sell"
             ],
             "type": "u64"
           },
@@ -932,13 +1074,6 @@ export type ResetProgram = {
               "Sale tokens already claimed from this tier"
             ],
             "type": "u64"
-          },
-          {
-            "name": "fundsWithdrawn",
-            "docs": [
-              "Whether admin has withdrawn funds from this tier"
-            ],
-            "type": "bool"
           }
         ]
       }
@@ -956,7 +1091,7 @@ export type ResetProgram = {
             "type": "u64"
           },
           {
-            "name": "paymentTokenCap",
+            "name": "saleTokenCap",
             "type": "u64"
           }
         ]
@@ -1041,19 +1176,12 @@ export type ResetProgram = {
     {
       "name": "committed",
       "docs": [
-        "User commitment data for a specific auction tier",
-        "PDA: [\"committed\", auction_key, user_key, bin_id]"
+        "User commitment data for all auction tiers",
+        "PDA: [\"committed\", auction_key, user_key]"
       ],
       "type": {
         "kind": "struct",
         "fields": [
-          {
-            "name": "launchpad",
-            "docs": [
-              "Reference to the launchpad account"
-            ],
-            "type": "pubkey"
-          },
           {
             "name": "auction",
             "docs": [
@@ -1069,25 +1197,17 @@ export type ResetProgram = {
             "type": "pubkey"
           },
           {
-            "name": "binId",
+            "name": "bins",
             "docs": [
-              "Tier ID this commitment is for"
+              "All bins this user has committed to"
             ],
-            "type": "u8"
-          },
-          {
-            "name": "paymentTokenCommitted",
-            "docs": [
-              "Amount of payment tokens committed"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "saleTokenClaimed",
-            "docs": [
-              "Amount of sale tokens already claimed"
-            ],
-            "type": "u64"
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "committedBin"
+                }
+              }
+            }
           },
           {
             "name": "bump",
@@ -1100,39 +1220,33 @@ export type ResetProgram = {
       }
     },
     {
-      "name": "launchpad",
+      "name": "committedBin",
       "docs": [
-        "Reset Launchpad global state account",
-        "PDA: [\"reset\"]"
+        "Individual bin commitment data within a user's commitment"
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "authority",
+            "name": "binId",
             "docs": [
-              "Platform administrator with full control"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "bump",
-            "docs": [
-              "PDA bump seed"
+              "Bin ID"
             ],
             "type": "u8"
           },
           {
-            "name": "reserved",
+            "name": "paymentTokenCommitted",
             "docs": [
-              "Reserved space for future expansion"
+              "Amount of payment tokens committed to this bin"
             ],
-            "type": {
-              "array": [
-                "u8",
-                200
-              ]
-            }
+            "type": "u64"
+          },
+          {
+            "name": "saleTokenClaimed",
+            "docs": [
+              "Amount of sale tokens already claimed from this bin"
+            ],
+            "type": "u64"
           }
         ]
       }

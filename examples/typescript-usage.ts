@@ -3,6 +3,12 @@
  * 
  * This file demonstrates how to use the generated TypeScript interfaces
  * to interact with the Reset Program on Solana.
+ * 
+ * Updated for the new architecture (2025-01-27):
+ * - Removed Launchpad dependency
+ * - Simplified PDA structure
+ * - Auto vault creation in init_auction
+ * - Updated instruction interfaces
  */
 
 import * as anchor from "@coral-xyz/anchor";
@@ -22,6 +28,7 @@ import {
   createAccount,
   mintTo,
   getAccount,
+  getAssociatedTokenAddress,
 } from "@solana/spl-token";
 import BN from "bn.js";
 
@@ -29,71 +36,47 @@ import BN from "bn.js";
 const PROGRAM_ID = new PublicKey("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 
 // Seeds for PDA derivation
-const LAUNCHPAD_SEED = "reset";
 const AUCTION_SEED = "auction";
 const COMMITTED_SEED = "committed";
+const VAULT_SEED = "vault";
 
 /**
- * Example: Initialize the Reset Launchpad
+ * Derive vault PDAs for an auction
  */
-async function initializeLaunchpad(
-  program: Program<ResetProgram>,
-  authority: Keypair
-): Promise<PublicKey> {
-  console.log("🚀 Initializing Reset Launchpad...");
-
-  // Derive launchpad PDA
-  const [launchpadPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from(LAUNCHPAD_SEED)],
-    program.programId
+function deriveVaultPDAs(auctionPda: PublicKey, programId: PublicKey) {
+  const [vaultSalePda] = PublicKey.findProgramAddressSync(
+    [Buffer.from(VAULT_SEED), auctionPda.toBuffer(), Buffer.from("sale")],
+    programId
   );
-
-  try {
-    // Initialize the launchpad
-    const tx = await program.methods
-      .initialize()
-      .accounts({
-        authority: authority.publicKey,
-        launchpad: launchpadPda,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([authority])
-      .rpc();
-
-    console.log("✅ Launchpad initialized!");
-    console.log("   Transaction:", tx);
-    console.log("   Launchpad PDA:", launchpadPda.toString());
-
-    return launchpadPda;
-  } catch (error) {
-    console.error("❌ Failed to initialize launchpad:", error);
-    throw error;
-  }
+  
+  const [vaultPaymentPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from(VAULT_SEED), auctionPda.toBuffer(), Buffer.from("payment")],
+    programId
+  );
+  
+  return { vaultSalePda, vaultPaymentPda };
 }
 
 /**
- * Example: Create an auction
+ * Example: Create an auction with automatic vault creation
  */
 async function createAuction(
   program: Program<ResetProgram>,
   authority: Keypair,
-  launchpadPda: PublicKey,
   saleTokenMint: PublicKey,
   paymentTokenMint: PublicKey,
-  vaultSaleToken: PublicKey,
-  vaultPaymentToken: PublicKey
-): Promise<PublicKey> {
-  console.log("🎯 Creating auction...");
+  authoritySaleToken: PublicKey
+): Promise<{ auctionPda: PublicKey; vaultSalePda: PublicKey; vaultPaymentPda: PublicKey }> {
+  console.log("🎯 Creating auction with auto vault creation...");
 
-  // Derive auction PDA
+  // Derive auction PDA (simplified - no launchpad dependency)
   const [auctionPda] = PublicKey.findProgramAddressSync(
-    [
-      Buffer.from(AUCTION_SEED),
-      launchpadPda.toBuffer(),
-      saleTokenMint.toBuffer(),
-    ],
+    [Buffer.from(AUCTION_SEED), saleTokenMint.toBuffer()],
     program.programId
   );
+
+  // Derive vault PDAs
+  const { vaultSalePda, vaultPaymentPda } = deriveVaultPDAs(auctionPda, program.programId);
 
   // Auction timing (start in 1 minute, run for 1 hour, claim after 5 minutes)
   const now = Math.floor(Date.now() / 1000);
@@ -105,11 +88,11 @@ async function createAuction(
   const bins = [
     {
       saleTokenPrice: new BN(1_000_000), // 1 payment token = 1 sale token
-      paymentTokenCap: new BN(50_000_000), // 50M payment tokens capacity
+      saleTokenCap: new BN(50_000_000), // 50M sale tokens capacity
     },
     {
       saleTokenPrice: new BN(2_000_000), // 2 payment tokens = 1 sale token
-      paymentTokenCap: new BN(100_000_000), // 100M payment tokens capacity
+      saleTokenCap: new BN(100_000_000), // 100M sale tokens capacity
     },
   ];
 
@@ -135,24 +118,27 @@ async function createAuction(
       )
       .accounts({
         authority: authority.publicKey,
-        launchpad: launchpadPda,
         auction: auctionPda,
         saleTokenMint: saleTokenMint,
         paymentTokenMint: paymentTokenMint,
-        vaultSaleToken: vaultSaleToken,
-        vaultPaymentToken: vaultPaymentToken,
+        vaultSaleToken: vaultSalePda,
+        vaultPaymentToken: vaultPaymentPda,
+        authoritySaleToken: authoritySaleToken,
+        tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
       .signers([authority])
       .rpc();
 
-    console.log("✅ Auction created!");
+    console.log("✅ Auction created with auto vault setup!");
     console.log("   Transaction:", tx);
     console.log("   Auction PDA:", auctionPda.toString());
+    console.log("   Sale Vault PDA:", vaultSalePda.toString());
+    console.log("   Payment Vault PDA:", vaultPaymentPda.toString());
     console.log("   Commit period:", new Date(commitStartTime.toNumber() * 1000).toISOString());
     console.log("   Claim period:", new Date(claimStartTime.toNumber() * 1000).toISOString());
 
-    return auctionPda;
+    return { auctionPda, vaultSalePda, vaultPaymentPda };
   } catch (error) {
     console.error("❌ Failed to create auction:", error);
     throw error;
@@ -167,19 +153,18 @@ async function commitToAuction(
   user: Keypair,
   auctionPda: PublicKey,
   userPaymentToken: PublicKey,
-  vaultPaymentToken: PublicKey,
+  vaultPaymentPda: PublicKey,
   binId: number,
   commitAmount: BN
 ): Promise<PublicKey> {
   console.log(`💰 User committing ${commitAmount.toString()} tokens to tier ${binId}...`);
 
-  // Derive committed PDA - new seed structure: ["committed", auction_key, user_key, bin_id]
+  // Derive committed PDA - seed structure: ["committed", auction_key, user_key] (no bin_id)
   const [committedPda] = PublicKey.findProgramAddressSync(
     [
       Buffer.from(COMMITTED_SEED),
       auctionPda.toBuffer(),
       user.publicKey.toBuffer(),
-      Buffer.from([binId]),
     ],
     program.programId
   );
@@ -192,7 +177,7 @@ async function commitToAuction(
         auction: auctionPda,
         committed: committedPda,
         userPaymentToken: userPaymentToken,
-        vaultPaymentToken: vaultPaymentToken,
+        vaultPaymentToken: vaultPaymentPda,
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
@@ -211,7 +196,43 @@ async function commitToAuction(
 }
 
 /**
- * Example: User claims allocated tokens
+ * Example: User decreases commitment (renamed from revert_commit)
+ */
+async function decreaseCommitment(
+  program: Program<ResetProgram>,
+  user: Keypair,
+  auctionPda: PublicKey,
+  committedPda: PublicKey,
+  userPaymentToken: PublicKey,
+  vaultPaymentPda: PublicKey,
+  decreaseAmount: BN
+): Promise<void> {
+  console.log(`📉 User decreasing commitment by ${decreaseAmount.toString()} tokens...`);
+
+  try {
+    const tx = await program.methods
+      .decreaseCommit(0, decreaseAmount) // bin_id, payment_token_reverted
+      .accounts({
+        user: user.publicKey,
+        auction: auctionPda,
+        committed: committedPda,
+        userPaymentToken: userPaymentToken,
+        vaultPaymentToken: vaultPaymentPda,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([user])
+      .rpc();
+
+    console.log("✅ Commitment decreased successfully!");
+    console.log("   Transaction:", tx);
+  } catch (error) {
+    console.error("❌ Failed to decrease commitment:", error);
+    throw error;
+  }
+}
+
+/**
+ * Example: User claims tokens with flexible interface
  */
 async function claimTokens(
   program: Program<ResetProgram>,
@@ -220,15 +241,17 @@ async function claimTokens(
   committedPda: PublicKey,
   userSaleToken: PublicKey,
   userPaymentToken: PublicKey,
-  vaultSaleToken: PublicKey,
-  vaultPaymentToken: PublicKey,
-  saleTokenMint: PublicKey
+  vaultSalePda: PublicKey,
+  vaultPaymentPda: PublicKey,
+  saleTokenMint: PublicKey,
+  saleTokenToClaim: BN,
+  paymentTokenToRefund: BN
 ): Promise<void> {
-  console.log("🎁 Claiming allocated tokens...");
+  console.log(`🎁 User claiming ${saleTokenToClaim.toString()} sale tokens and ${paymentTokenToRefund.toString()} payment token refund...`);
 
   try {
     const tx = await program.methods
-      .claim()
+      .claim(0, saleTokenToClaim, paymentTokenToRefund) // bin_id, sale_token_to_claim, payment_token_to_refund
       .accounts({
         user: user.publicKey,
         auction: auctionPda,
@@ -236,8 +259,8 @@ async function claimTokens(
         saleTokenMint: saleTokenMint,
         userSaleToken: userSaleToken,
         userPaymentToken: userPaymentToken,
-        vaultSaleToken: vaultSaleToken,
-        vaultPaymentToken: vaultPaymentToken,
+        vaultSaleToken: vaultSalePda,
+        vaultPaymentToken: vaultPaymentPda,
         tokenProgram: TOKEN_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -254,24 +277,85 @@ async function claimTokens(
 }
 
 /**
- * Example: Fetch and display account data
+ * Example: Admin withdraws funds from all tiers
+ */
+async function withdrawFunds(
+  program: Program<ResetProgram>,
+  authority: Keypair,
+  auctionPda: PublicKey,
+  vaultSalePda: PublicKey,
+  vaultPaymentPda: PublicKey,
+  authoritySaleToken: PublicKey,
+  authorityPaymentToken: PublicKey
+): Promise<void> {
+  console.log("💸 Admin withdrawing funds from all tiers...");
+
+  try {
+    const tx = await program.methods
+      .withdrawFunds()
+      .accounts({
+        authority: authority.publicKey,
+        auction: auctionPda,
+        vaultSaleToken: vaultSalePda,
+        vaultPaymentToken: vaultPaymentPda,
+        authoritySaleToken: authoritySaleToken,
+        authorityPaymentToken: authorityPaymentToken,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([authority])
+      .rpc();
+
+    console.log("✅ Funds withdrawn successfully!");
+    console.log("   Transaction:", tx);
+  } catch (error) {
+    console.error("❌ Failed to withdraw funds:", error);
+    throw error;
+  }
+}
+
+/**
+ * Example: Admin withdraws fees to specified recipient
+ */
+async function withdrawFees(
+  program: Program<ResetProgram>,
+  authority: Keypair,
+  auctionPda: PublicKey,
+  feeRecipient: PublicKey
+): Promise<void> {
+  console.log(`💰 Admin withdrawing fees to recipient ${feeRecipient.toString()}...`);
+
+  try {
+    const tx = await program.methods
+      .withdrawFees(feeRecipient)
+      .accounts({
+        authority: authority.publicKey,
+        auction: auctionPda,
+        vaultPaymentToken: deriveVaultPDAs(auctionPda, program.programId).vaultPaymentPda,
+        feeRecipientAccount: feeRecipient,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([authority])
+      .rpc();
+
+    console.log("✅ Fees withdrawn successfully!");
+    console.log("   Transaction:", tx);
+  } catch (error) {
+    console.error("❌ Failed to withdraw fees:", error);
+    throw error;
+  }
+}
+
+/**
+ * Example: Display account data
  */
 async function displayAccountData(
   program: Program<ResetProgram>,
-  launchpadPda: PublicKey,
   auctionPda?: PublicKey,
   committedPda?: PublicKey
 ): Promise<void> {
-  console.log("📊 Fetching account data...");
+  console.log("📊 Displaying account data...");
 
   try {
-    // Fetch launchpad data
-    const launchpadData = await program.account.launchpad.fetch(launchpadPda);
-    console.log("📋 Launchpad Data:");
-    console.log("   Authority:", launchpadData.authority.toString());
-    console.log("   Bump:", launchpadData.bump);
-
-    // Fetch auction data if provided
     if (auctionPda) {
       const auctionData = await program.account.auction.fetch(auctionPda);
       console.log("🎯 Auction Data:");
@@ -282,32 +366,32 @@ async function displayAccountData(
       console.log("   Commit Start:", new Date(auctionData.commitStartTime.toNumber() * 1000).toISOString());
       console.log("   Commit End:", new Date(auctionData.commitEndTime.toNumber() * 1000).toISOString());
       console.log("   Claim Start:", new Date(auctionData.claimStartTime.toNumber() * 1000).toISOString());
-      console.log("   Number of Tiers:", auctionData.bins.length);
+      console.log("   Vault Sale Bump:", auctionData.vaultSaleBump);
+      console.log("   Vault Payment Bump:", auctionData.vaultPaymentBump);
+      console.log("   Bins:", auctionData.bins.length);
       
       auctionData.bins.forEach((bin, index) => {
         console.log(`   Tier ${index}:`);
         console.log(`     Price: ${bin.saleTokenPrice.toString()}`);
-        console.log(`     Capacity: ${bin.paymentTokenCap.toString()}`);
+        console.log(`     Cap: ${bin.paymentTokenCap.toString()}`);
         console.log(`     Raised: ${bin.paymentTokenRaised.toString()}`);
         console.log(`     Claimed: ${bin.saleTokenClaimed.toString()}`);
         console.log(`     Withdrawn: ${bin.fundsWithdrawn}`);
       });
-
-      // Display extension data
-      console.log("🔧 Extensions:");
-      console.log("   Whitelist Authority:", auctionData.extensions.whitelistAuthority?.toString() || "None");
-      console.log("   Commit Cap Per User:", auctionData.extensions.commitCapPerUser?.toString() || "None");
-      console.log("   Claim Fee Rate:", auctionData.extensions.claimFeeRate?.toString() || "None");
     }
 
-    // Fetch commitment data if provided
     if (committedPda) {
-      const commitmentData = await program.account.committed.fetch(committedPda);
-      console.log("💰 Commitment Data:");
-      console.log("   User:", commitmentData.user.toString());
-      console.log("   Tier ID:", commitmentData.binId);
-      console.log("   Payment Committed:", commitmentData.paymentTokenCommitted.toString());
-      console.log("   Sale Claimed:", commitmentData.saleTokenClaimed.toString());
+      const committedData = await program.account.committed.fetch(committedPda);
+      console.log("💰 Committed Data:");
+      console.log("   Auction:", committedData.auction.toString());
+      console.log("   User:", committedData.user.toString());
+      console.log("   Bins:", committedData.bins.length);
+      
+      committedData.bins.forEach((bin, index) => {
+        console.log(`   Bin ${bin.binId}:`);
+        console.log(`     Payment Committed: ${bin.paymentTokenCommitted.toString()}`);
+        console.log(`     Sale Claimed: ${bin.saleTokenClaimed.toString()}`);
+      });
     }
   } catch (error) {
     console.error("❌ Failed to fetch account data:", error);
@@ -315,55 +399,179 @@ async function displayAccountData(
 }
 
 /**
- * Main example function
+ * Main example function demonstrating the complete auction lifecycle
  */
 async function main() {
-  console.log("🔗 Connecting to Solana...");
+  console.log("🚀 Reset Program TypeScript Example");
+  console.log("=====================================");
 
   // Setup connection and provider
   const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
-  const wallet = Keypair.generate(); // In practice, use your actual wallet
+  const wallet = Keypair.generate(); // In practice, use your wallet
   const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(wallet), {});
   anchor.setProvider(provider);
 
   // Load the program
   const program = anchor.workspace.ResetProgram as Program<ResetProgram>;
-  console.log("📦 Program ID:", program.programId.toString());
 
-  // For this example, we'll just demonstrate the interface usage
-  // In practice, you would:
-  // 1. Airdrop SOL to your accounts
-  // 2. Create token mints
-  // 3. Create token accounts
-  // 4. Fund accounts with tokens
-  // 5. Execute the transactions
+  try {
+    // 1. Setup tokens and accounts
+    console.log("\n📋 Setting up tokens and accounts...");
+    
+    const authority = Keypair.generate();
+    const user = Keypair.generate();
+    
+    // Airdrop SOL for testing
+    await connection.requestAirdrop(authority.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
+    await connection.requestAirdrop(user.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
+    
+    // Create token mints
+    const saleTokenMint = await createMint(
+      connection,
+      authority,
+      authority.publicKey,
+      null,
+      6 // 6 decimals
+    );
+    
+    const paymentTokenMint = await createMint(
+      connection,
+      authority,
+      authority.publicKey,
+      null,
+      6 // 6 decimals
+    );
 
-  console.log("\n🎉 TypeScript interfaces are ready to use!");
-  console.log("📚 Available program methods:");
-  console.log("   - initialize()");
-  console.log("   - initAuction()");
-  console.log("   - commit()");
-  console.log("   - revertCommit()");
-  console.log("   - claim()");
-  console.log("   - claimAmount()");
-  console.log("   - withdrawFunds()");
-  console.log("   - withdrawFees()");
-  console.log("   - setPrice()");
+    // Create token accounts
+    const authoritySaleToken = await createAccount(
+      connection,
+      authority,
+      saleTokenMint,
+      authority.publicKey
+    );
+    
+    const userPaymentToken = await createAccount(
+      connection,
+      user,
+      paymentTokenMint,
+      user.publicKey
+    );
 
-  console.log("\n📊 Available account types:");
-  console.log("   - program.account.launchpad");
-  console.log("   - program.account.auction");
-  console.log("   - program.account.committed");
+    // Mint tokens
+    await mintTo(
+      connection,
+      authority,
+      saleTokenMint,
+      authoritySaleToken,
+      authority,
+      1_000_000_000_000 // 1M sale tokens
+    );
+    
+    await mintTo(
+      connection,
+      authority,
+      paymentTokenMint,
+      userPaymentToken,
+      authority,
+      100_000_000_000 // 100K payment tokens for user
+    );
 
-  console.log("\n🔧 Type definitions available in:");
-  console.log("   - types/reset_program.ts");
-  console.log("   - types/reset_program.json");
+    // 2. Create auction with auto vault creation
+    console.log("\n🎯 Creating auction...");
+    const { auctionPda, vaultSalePda, vaultPaymentPda } = await createAuction(
+      program,
+      authority,
+      saleTokenMint,
+      paymentTokenMint,
+      authoritySaleToken
+    );
 
-  console.log("\n🆕 New features in this version:");
-  console.log("   - Embedded auction extensions (whitelist, commit caps, claim fees)");
-  console.log("   - Custody account support");
-  console.log("   - Enhanced claim functionality with automatic refunds");
-  console.log("   - Updated PDA seed structures");
+    // 3. User commits to auction
+    console.log("\n💰 User committing to auction...");
+    const committedPda = await commitToAuction(
+      program,
+      user,
+      auctionPda,
+      userPaymentToken,
+      vaultPaymentPda,
+      0, // bin_id
+      new BN(10_000_000) // 10M payment tokens
+    );
+
+    // 4. Display account data
+    console.log("\n📊 Displaying account data...");
+    await displayAccountData(program, auctionPda, committedPda);
+
+    // 5. User decreases commitment (optional)
+    console.log("\n📉 User decreasing commitment...");
+    await decreaseCommitment(
+      program,
+      user,
+      auctionPda,
+      committedPda,
+      userPaymentToken,
+      vaultPaymentPda,
+      new BN(1_000_000) // Decrease by 1M payment tokens
+    );
+
+    // 6. Wait for claim period (in practice, you'd wait for the actual time)
+    console.log("\n⏰ Waiting for claim period...");
+    // In a real scenario, you'd wait for auction.claimStartTime
+
+    // 7. User claims tokens with flexible interface
+    console.log("\n🎁 User claiming tokens...");
+    const userSaleToken = await getAssociatedTokenAddress(
+      saleTokenMint,
+      user.publicKey
+    );
+    
+    await claimTokens(
+      program,
+      user,
+      auctionPda,
+      committedPda,
+      userSaleToken,
+      userPaymentToken,
+      vaultSalePda,
+      vaultPaymentPda,
+      saleTokenMint,
+      new BN(9_000_000), // Claim 9M sale tokens
+      new BN(0) // No payment token refund for this example
+    );
+
+    // 8. Admin withdraws funds from all tiers
+    console.log("\n💸 Admin withdrawing funds...");
+    const authorityPaymentToken = await createAccount(
+      connection,
+      authority,
+      paymentTokenMint,
+      authority.publicKey
+    );
+    
+    await withdrawFunds(
+      program,
+      authority,
+      auctionPda,
+      vaultSalePda,
+      vaultPaymentPda,
+      authoritySaleToken,
+      authorityPaymentToken
+    );
+
+    // 9. Admin withdraws fees
+    console.log("\n💰 Admin withdrawing fees...");
+    await withdrawFees(
+      program,
+      authority,
+      auctionPda,
+      authority.publicKey // Fee recipient
+    );
+
+    console.log("\n✅ Example completed successfully!");
+
+  } catch (error) {
+    console.error("❌ Example failed:", error);
+  }
 }
 
 // Run the example
@@ -372,12 +580,12 @@ if (require.main === module) {
 }
 
 export {
-  initializeLaunchpad,
   createAuction,
   commitToAuction,
+  decreaseCommitment,
   claimTokens,
+  withdrawFunds,
+  withdrawFees,
   displayAccountData,
-  LAUNCHPAD_SEED,
-  AUCTION_SEED,
-  COMMITTED_SEED,
+  deriveVaultPDAs,
 }; 

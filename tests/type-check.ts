@@ -37,11 +37,11 @@ function testTypeDefinitions() {
     const bins = [
       {
         saleTokenPrice: new BN(1_000_000),
-        paymentTokenCap: new BN(50_000_000),
+        sellTokenCap: new BN(50_000_000),
       },
       {
         saleTokenPrice: new BN(2_000_000),
-        paymentTokenCap: new BN(100_000_000),
+        sellTokenCap: new BN(50_000_000),
       },
     ];
     console.log("✅ Bin structure type is correct");

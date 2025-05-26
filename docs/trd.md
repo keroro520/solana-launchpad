@@ -1,6 +1,6 @@
 # Reset Program Specification
 
-## 1. 约定                                                                           
+## 约定                                                                           
 
 1. **本文档用 `$Sol` 表示原生代币，用 `$DAI` 表示发射代币，用 `$bbSol` 表示收款代币**
 2. **本文档用 commit 表示认购、用 claim 表示认领**
@@ -11,7 +11,6 @@
 
 | 流程 | 内容 |
 | :--- | :--- |
-| (0) 平台初始化 | 平台方创建 Launchpad，参看 [`initialize()`](#initialize) |
 | (1) 准备阶段 | 项目方提供活动参数，创建活动募资账户，参看 [`init_auction()`](#init_auction)  |
 | (2) 认购阶段 | 用户使用 `$bbSol` 参与指定梯度的认购，参看 [`commit()`](#commit) |
 | (3) 认领阶段 | 用户认领指定梯度的代币 `$DAI`，以及未生效的 `$bbSol` （超额认购），参看 [`claim()`](#claim) |
@@ -26,21 +25,22 @@
 认购阶段结束后，按下方公式计算用户可认领的`$DAI`和未生效的`$bbSol`（退回给用户）:
 
 ```
-募资目标的$bbSol = 发行量$DAI * 发行价
+梯度发行量上限 = sale_token_cap (以$DAI为单位)
 实际认购的$bbSol = SUM(所有用户认购的$bbSol)
+总需求的$DAI = 实际认购的$bbSol / 发行价
 
-IF 实际认购的$bbSol <= 募资目标的$bbSol THEN  // 未超募
+IF 总需求的$DAI <= 梯度发行量上限 THEN  // 未超募
     用户可认领的$DAI = 用户认购的$bbSol / 发行价
     用户未生效的`$bbSol` = 0
-ELSE                                          // 超募
-    分配率 = 募资目标的$bbSol / 实际认购的$bbSol
-    用户生效的认购$bbSol = 用户认购的$bbSol * 分配率
-    用户可认领的$DAI = 用户生效的认购$bbSol / 发行价
+ELSE                                     // 超募
+    分配率 = 梯度发行量上限 / 总需求的$DAI
+    用户可认领的$DAI = (用户认购的$bbSol / 发行价) * 分配率
+    用户生效的认购$bbSol = 用户可认领的$DAI * 发行价
     用户未生效的`$bbSol` = 用户认购的$bbSol - 用户生效的认购$bbSol
 END
 ```
 
-## 代币、账户类型、指令的简述
+## 代币、账户类型、指令的概览
 
 ## 代币概览
 
@@ -50,81 +50,60 @@ END
 | SaleToken | 发射代币，即将发行的币种，如 `$DAI` |
 | PaymentToken | 收款代币，用户参与认购时支付的币种，如 `$bbSol` |
 
-### Accounts
+### 账户概览
 
-| Account   | Description | Note |
-| :---      | :---        | :--- |
-| Launchpad | 平台账户，对应 Reset Launchpad 平台，只有一个 | |
-| LaunchpadAdmin | 平台管理员账户，拥有创建活动、更新活动信息的管理员权限 | |
-| Auction   | 募资活动账户，对应此次募资活动，每次募资都会创建一个对应的账户实例，用于存储募资信息，包括每个梯度的 “已认购的 `$bbSol` 数量” | |
-| Custody   | 代理账户，对应 Bybit，Bybit 代理账户替站内用户发起认购和认领；可以视作特殊用户，因为它不受白名单的限制，也不受认购额度的限制，而且可以部分 claim | 在认购和认领时，检查交易是否有Custody 的 **离线授权签名**，如果有，则跳过白名单限制、认购额度限制等；目前只有一个代理账户，且没提供更改账户的指令 |
-| VaultSaltTokenAccount    | 金库的 `$DAI` 账户，   用于保管活动要发放的 `$DAI` ，项目方在活动准备阶段会将 `$DAI` 转入本账户 | |
-| VaultPaymentTokenAccount | 金库的 `$bbSol` 账户，用于保管活动募集到的 `$bbSol` | 平台应提前自行创建好该账户 |
-| UserSaleTokenAccount | 用户的 `$DAI` 账户。在 claim 时创建 | |
-| UserPaymentTokenAccount | 用户的 `$bbSol` 账户。在 commit 时用于认购支付 | |
-| Committed | 用户认购信息账户，对应用户在一个梯度里的认购信息，包括梯度信息、认购数额等 | |
+| Account   | Description |
+| :---      | :---        |
+| Launchpad | 平台账户， executable program， program 内硬编码了管理员 LaunchpadAdmin 的 pubkey，对应 Reset Launchpad 平台，只有一个。提供 `get_launchpad_admin()` 指令查询硬编码的管理员公钥 |
+| Auction   | 募资活动账户，对应此次募资活动，每次募资都会创建一个对应的 PDA 账户实例，用于存储募资信息，包括每个梯度的 "已认购的 `$bbSol` 数量"，以及金库 bump 信息。authority 字段指向硬编码的 LaunchpadAdmin |
+| Custody   | 代理账户，由私钥控制，对应 Bybit，Bybit 代理账户替站内用户发起认购和认领；可以视作特殊用户，因为它不受白名单的限制，也不受认购额度的限制，而且可以部分 claim. 在认购和认领时，检查交易是否有Custody 的 **离线授权签名**，如果有，则跳过白名单限制、认购额度限制等；目前只有一个代理账户，且没提供更改账户的指令 |
+| VaultSaleTokenAccount    | 金库的 `$DAI` 账户，PDA 账户，用于保管活动要发放的 `$DAI`，在活动创建时自动创建并转入代币 |
+| VaultPaymentTokenAccount | 金库的 `$bbSol` 账户，PDA 账户，用于保管活动募集到的 `$bbSol`，在活动创建时自动创建 |
+| UserSaleTokenAccount | 用户的 `$DAI` 账户。在 claim 时创建，用于接收认领的代币，authority = signer.key() |
+| UserPaymentTokenAccount | 用户的 `$bbSol` 账户。在 commit 时用于认购支付，authority = signer.key() |
+| Committed | 用户认购信息账户， PDA，对应用户在所有梯度的认购信息，包括各梯度的认购数额、已认领数额等，authority = signer.key() |
+| Ext. whitelist_authority | 白名单授权账户，由私钥控制，以离线签名的方式提供白名单用户授权 |
 
-### Instructions
+### 指令概览
 
 | Instruction | Description |
 | :--- | :--- |
-| `initialize` | 当平台上线时，初始化 Launchpad 账户 |
-| `init_auction` | 当准备一次募资活动时，创建一个 Auction 募资活动账户 |
+| `init_auction` | 当准备一次募资活动时，创建一个 Auction 募资活动账户，自动创建金库 PDA 并转入初始代币 |
 | `commit` | 用户认购，用户指定目标梯度和认购数额。合约会自动给用户创建对应的 Committed 账户，用于存储认购信息，并将相应的 `$bbSol` 从 UserPaymentTokenAccount 转入 VaultPaymentTokenAccount |
-| `revert_commit` | 用户取消认购，用户指定目标梯度和取消认购的数额。合约更新 Committed 账户的认购信息，并将相应的 `$bbSol` 从 VaultPaymentTokenAccount 转出 UserPaymentTokenAccount |
-| `claim`  | 用户 **领取全部的认购的`$DAI`**以及未生效的 `$bbSol`。合约会自动创建 UserSaleTokenAccount，并将 `$DAI` 转到 UserSaleTokenAccount，同时将未生效的 `$bbSol` 退回到用户的 PaymentToken 账户 |
-| `claim_amount` | 与 `claim` 类似，区别在于支持部分领取。用于代理账户 Custody **领取部分$DAI和部分的`$bbSol`**。这个指令只有 Custody 账户有权限 | 
-| `withdraw_funds` | （管理员）提取此次活动募集到的 `$bbSol` 和未出售的 `$DAI` |
+| `decrease_commit` | 用户减少认购，用户指定目标梯度和减少认购的数额。合约更新 Committed 账户中对应梯度的认购信息，并将相应的 `$bbSol` 从 VaultPaymentTokenAccount 转出 UserPaymentTokenAccount |
+| `claim`  | 用户 **灵活认领指定梯度的指定数量的`$DAI`和`$bbSol`**。支持部分认领，用户可以指定要认领的梯度、sale token 数量和要退回的 payment token 数量 |
+| `withdraw_funds` | （管理员）提取此次活动所有梯度募集到的 `$bbSol` 和未出售的 `$DAI` |
 | `withdraw_fees` | （管理员）提取此次活动收集到的 claim fee `$Sol` |
 | `set_price` | （管理员）修改某个梯度的认购价格 |
+| `get_launchpad_admin` | 查询硬编码的 LaunchpadAdmin 公钥 |
 
 ## Account Data and Constraints
 
-Reset program 定义的账户类型有，Launchpad、Auction、AuctionExtensions、Committed，下面详细介绍这些账户类型。
-
-### Launchpad Account
-
-Reset Launchpad 的全局状态，由 LaunchpadAdmin 初始化并控制。它通过固定的 PDA 种子生成。
-
-```rust
-#[account]
-struct Launchpad {
-    // system info
-    owner: Reset Program,
-    seeds = ["reset"],
-    bump,
-
-    data: {
-        authority: LaunchpadAdmin.pubkey(),
-        bump: u8,
-        reserved: [u8; 200], // 为未来扩展预留空间
-    }
-}
-```
-
-注：为了兼容未来可能存在的扩容需求，预留了 200 字节的空间
+Reset program 定义的账户类型有 Auction、Committed，下面详细介绍这些账户类型。
 
 ### Auction Account
 
-募资活动的信息和状态数据，由 [Launchpad Account](#LaunchpadAccount) 派生的 PDA。
-LaunchpadAdmin 拥有对 Launchpad 的控制权限，从而间接控制 Auction 账户。
+募资活动的信息和状态数据，由 sale token mint 派生的 PDA。
+活动创建者拥有对 Auction 的控制权限。
 
 ```rust
 #[account]
 struct Auction {
     // system info
     owner: Reset Program,
-    seeds = ["auction", Launchpad.key(), SaleTokenMint.key()],
+    seeds = ["auction", SaleTokenMint.key()],
     bump,
 
     data: {
         // accounts info
-        authority: LaunchpadAdmin,
-        launchpad: Launchpad,
+        authority: LaunchpadAdmin,  // 硬编码的管理员账户（固定值）
         sale_token: SaleTokenMint,
         payment_token: PaymentTokenMint,
-        vault_sale_token: VaultSaleTokenAccount,
-        vault_payment_token: VaultPaymentTokenAccount,
+        custody: CustodyAccount,
+
+        // vault info
+        vault_sale_bump: u8,
+        vault_payment_bump: u8,
 
         // auction info
         commit_start_time:  i64,
@@ -132,14 +111,14 @@ struct Auction {
         claim_start_time:   i64,
         bins: [{
             sale_token_price:       u64,  // 发行价
-            payment_token_cap:      u64,  // 目标募资金额
+            sale_token_cap:         u64,  // 梯度发行量上限（以sale token为单位）
             payment_token_raised:   u64,  // 已经募资的金额
             sale_token_claimed:     u64,  // 已经 claim 的代币数量
-            funds_withdrawn:        bool, // 是否已经执行过 withdraw_funds
         }],
 
         // extensions
         extensions: AuctionExtensions,
+        bump: u8,
     }
 }
 ```
@@ -153,88 +132,97 @@ struct Auction {
 struct AuctionExtensions {
     whitelist_authority: Option<Pubkey>,        // 白名单授权账户
     commit_cap_per_user: Option<u64>,          // 用户认购限额
-    claim_fee_rate: Option<u64>,               // 认领手续费率（基点，如100=1%）
+    claim_fee_rate: Option<u16>,               // 认领手续费率（基点，如100=1%）
 }
 ```
 
 ### Committed Account
 
-用户的认购信息，由用户、拍卖和梯度ID派生的 PDA。
+用户的认购信息，由用户和拍卖派生的 PDA。现在存储用户在所有梯度的认购信息。
 
 ```rust
 #[account]
 struct Committed {
     // system info
     owner: Reset Program,
-    seeds = ["committed", Auction.key(), bin_id, user.key()],
+    seeds = ["committed", Auction.key(), user.key()],  // 移除了 bin_id
     bump,
 
     data: {
         // accounts info
-        launchpad: Launchpad,
         auction: Auction,
         user: User,
 
-        // 梯度下标
-        bin_id:                     u8,
-        // 用户在该梯度中认购的数额
-        payment_token_committed:    u64,
-        // 用户在该梯度中已认领的数额
-        sale_token_claimed:         u64,
+        // 用户参与的所有梯度认购信息
+        bins: Vec<CommittedBin>,
         // PDA bump
         bump: u8,
     }
 }
+
+// 单个梯度的认购信息
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+struct CommittedBin {
+    // 梯度下标
+    bin_id: u8,
+    // 用户在该梯度中认购的数额
+    payment_token_committed: u64,
+    // 用户在该梯度中已认领的数额
+    sale_token_claimed: u64,
+}
+```
+
+### Vault Accounts
+
+金库账户为 PDA 账户，由程序自动管理：
+
+```rust
+// Sale Token Vault PDA
+seeds = ["vault_sale", Auction.key()]
+
+// Payment Token Vault PDA  
+seeds = ["vault_payment", Auction.key()]
 ```
 
 ## Instructions
 
-### `initialize()`
-
-```rust
-/// 平台初始化
-pub fn initialize(Context{
-    authority: LaunchpadAdmin,
-    launchpad: Launchpad, // PDA to be created
-    system_program: SystemProgram,
-}) {
-    // CHECK: LaunchpadAdmin signed
-    // CHECK: Launchpad PDA derivation correct
-
-    // CPI: 创建 Launchpad 账户, space = 233 bytes
-    // INIT: launchpad.authority = authority.key()
-    // INIT: launchpad.bump = ctx.bumps.launchpad
-    // MSG "Reset Launchpad initialized with authority: {}"
-}
-```
-
 ### `init_auction()`
 
 ```rust
-/// 创建募资活动
+/// 创建募资活动（自动创建金库）
 pub fn init_auction(Context{
-    authority: LaunchpadAdmin,
-    launchpad: Launchpad,
-    auction: Auction, // PDA to be created
+    authority: Signer,                      // 必须是硬编码的 LaunchpadAdmin
+    auction: UncheckedAccount,              // PDA: ["auction", sale_token_mint]
     sale_token_mint: Mint,
     payment_token_mint: Mint,
-    vault_sale_token: TokenAccount,
-    vault_payment_token: TokenAccount,
+    sale_token_seller: TokenAccount,        // sale token 提供方账户（用于初始资金转移）
+    sale_token_seller_authority: Signer,    // sale token 提供方的授权账户
+    vault_sale_token: UncheckedAccount,     // PDA: ["vault_sale", auction_pda]
+    vault_payment_token: UncheckedAccount,  // PDA: ["vault_payment", auction_pda]
+    token_program: TokenProgram,
     system_program: SystemProgram,
 }, commit_start_time, commit_end_time, claim_start_time, bins, custody, extension_params) {
+    // CHECK: authority 必须等于硬编码的 LaunchpadAdmin
     // CHECK: Context validation
-    // CHECK: current_time < commit_start_time < commit_end_time < claim_start_time
-    // CHECK: LaunchpadAdmin signed (launchpad.has_one = authority)
+    // CHECK: commit_start_time < commit_end_time < claim_start_time
     // CHECK: bins.len() > 0 && bins.len() <= 100
-    // CHECK: [bin.price > 0 && bin.cap > 0 for bin in bins]
-    // CHECK: vault ownership constraints
+    // CHECK: all bins have valid price and cap
+    // CHECK: sale_token_mint != payment_token_mint
+    // CHECK: sale_token_seller ownership and mint
 
-    // CPI: 创建 Auction 账户
+    // CALC: 计算所有梯度需要的总 sale token 数量 = SUM(bin.sale_token_cap)
+    
+    // CPI: 创建 Auction PDA 账户 ["auction", sale_token_mint]
+    // CPI: 自动创建 vault_sale_token PDA 账户 ["vault_sale", auction_pda]
+    // CPI: 自动创建 vault_payment_token PDA 账户 ["vault_payment", auction_pda]
+    // CPI: 转移总需求的 sale tokens 从 sale_token_seller 到 vault_sale_token
+    // INIT: auction.authority = LaunchpadAdmin (硬编码)
     // INIT: auction fields from parameters
     // INIT: auction.bins from bins parameters
     // INIT: auction.custody = custody
     // INIT: auction.extensions = extension_params
-    // MSG "Auction initialized with {} tiers"
+    // INIT: auction.vault_sale_bump and vault_payment_bump (存储 bump seeds)
+    // MSG "Auction initialized with {} tiers and vaults auto-created"
 }
 ```
 
@@ -256,50 +244,54 @@ pub fn commit(Context{
     // CHECK: bin_id valid in auction
     // CHECK: payment_token_committed > 0
     // CHECK: user_payment_token ownership and mint
-    // CHECK: vault_payment_token matches auction.vault_payment_token
+    // CHECK: vault_payment_token matches auction vault PDA
+    // CHECK: commitment doesn't exceed tier capacity (convert payment to sale tokens for comparison)
     
     // EXTENSION: Validate whitelist (if enabled)
     // EXTENSION: Validate commit cap per user (if enabled)
 
-    // CPI: 创建 Committed PDA 账户 if not existed (manual account creation)
-    // CPI: 更新 Committed 账户信息：Committed.payment_token_committed += payment_token_committed
+    // CPI: 创建 Committed PDA 账户 if not existed (manual account creation with initial space for 1 bin)
+    // CPI: 更新或添加 Committed 账户中的梯度信息：
+    //      - 如果 bin_id 已存在，则 bins[bin_id].payment_token_committed += payment_token_committed
+    //      - 如果 bin_id 不存在，则使用 realloc 扩展空间并添加新的 CommittedBin
     // CPI: 更新 Auction.bins[bin_id].payment_token_raised += payment_token_committed
     // CPI: transfer payment_token_committed from user to vault
     // MSG "Committed {} payment tokens to bin {} by user {}"
 }
 ```
 
-### `revert_commit()`
+### `decrease_commit()`
 
 ```rust
-/// 用户取消认购
-pub fn revert_commit(Context{
+/// 用户减少认购
+pub fn decrease_commit(Context{
     user: Signer,
     auction: Auction,
     committed: Committed,
     user_payment_token: TokenAccount,
     vault_payment_token: TokenAccount,
     token_program: TokenProgram,
-}, payment_token_reverted) {
+}, bin_id, payment_token_reverted) {
     // CHECK: Context validation
     // CHECK: auction.commit_start_time <= CURRENT <= auction.commit_end_time
     // CHECK: committed.user == user.key() (ownership validation)
     // CHECK: payment_token_reverted > 0
-    // CHECK: committed.payment_token_committed >= payment_token_reverted
+    // CHECK: bin_id valid in auction
+    // CHECK: committed.bins[bin_id].payment_token_committed >= payment_token_reverted
     
     // EXTENSION: Validate whitelist (if enabled)
 
     // CPI: transfer payment_token_reverted from vault to user (with auction PDA signer)
-    // CPI: 更新 Auction.bins[committed.bin_id].payment_token_raised -= payment_token_reverted
-    // CPI: 更新 Committed.payment_token_committed -= payment_token_reverted
-    // MSG "Reverted {} payment tokens from bin {} by user {}"
+    // CPI: 更新 Auction.bins[bin_id].payment_token_raised -= payment_token_reverted
+    // CPI: 更新 Committed.bins[bin_id].payment_token_committed -= payment_token_reverted
+    // MSG "Decreased commitment by {} payment tokens from bin {} by user {}"
 }
 ```
 
 ### `claim()`
 
 ```rust
-/// 用户全部领取
+/// 用户灵活认领
 pub fn claim(ctx: Context{
     user: Signer,
     auction: Auction,
@@ -312,68 +304,37 @@ pub fn claim(ctx: Context{
     token_program: TokenProgram,
     associated_token_program: AssociatedTokenProgram,
     system_program: SystemProgram,
-}) {
+}, bin_id, sale_token_to_claim, payment_token_to_refund) {
     // CHECK: Context validation
     // CHECK: auction.claim_start_time <= CURRENT
     // CHECK: committed.user == user.key() (ownership validation)
+    // CHECK: bin_id valid in auction
+    // CHECK: sale_token_to_claim > 0 || payment_token_to_refund > 0
 
-    // CALC: claimable_amounts using full allocation algorithm
-    // CHECK: committed.sale_token_claimed < claimable_amounts.sale_tokens
+    // CALC: claimable_amounts using allocation algorithm for specific bin
+    // CHECK: committed.bins[bin_id].sale_token_claimed + sale_token_to_claim <= claimable_amounts.sale_tokens
+    // CHECK: payment_token_to_refund <= claimable_amounts.refund_payment_tokens
     
-    let sale_tokens_to_claim = claimable_amounts.sale_tokens - committed.sale_token_claimed;
-    let payment_tokens_to_refund = claimable_amounts.refund_payment_tokens;
-    
-    // EXTENSION: Calculate claim fee (if enabled)
-    let claim_fee = calculate_claim_fee(auction, sale_tokens_to_claim);
-    // TODO: transfer claim fee to Auction account
-    
-    // CPI: 更新 Committed.sale_token_claimed = claimable_amounts.sale_tokens
-    // CPI: 更新 Auction.bins[committed.bin_id].sale_token_claimed += sale_tokens_to_claim
-    
-    // CPI: transfer sale_tokens_to_claim from vault_sale_token to user_sale_token (if > 0)
-    // CPI: transfer payment_tokens_to_refund from vault_payment_token to user_payment_token (if > 0)
-    // MSG "Claimed {} sale tokens and {} payment token refund from bin {} by user {} (fee: {})"
-}
-```
-
-### `claim_amount()`
-
-```rust
-/// 部分领取（Custody 特殊权限账户）
-pub fn claim_amount(ctx: Context{
-    user: Signer,
-    auction: Auction,
-    committed: Committed,
-    user_sale_token: TokenAccount,
-    vault_sale_token: TokenAccount,
-    token_program: TokenProgram,
-}, sale_token_to_claim) {
-    // CHECK: Context validation
-    // CHECK: auction.claim_start_time <= CURRENT
-    // CHECK: committed.user == user.key() (ownership validation)
-    // CHECK: custody's offline signature
-    // CHECK: sale_token_to_claim > 0
-
-    // CALC: total_claimable using allocation algorithm
-    // CHECK: committed.sale_token_claimed + sale_token_to_claim <= total_claimable
-
-    // TODO: 未生效的 `$bbSol` 怎么计算和处理？
-
     // EXTENSION: Calculate claim fee (if enabled)
     let claim_fee = calculate_claim_fee(auction, sale_token_to_claim);
     // TODO: transfer claim fee to Auction account
+    
+    // CPI: 更新 Committed.bins[bin_id].sale_token_claimed += sale_token_to_claim
+    // CPI: 更新 Auction.bins[bin_id].sale_token_claimed += sale_token_to_claim
+    
+    // CPI: transfer sale_token_to_claim from vault_sale_token to user_sale_token (if > 0)
+    // CPI: transfer payment_token_to_refund from vault_payment_token to user_payment_token (if > 0)
 
-    // CPI: transfer sale_token_to_claim from vault to user (with auction PDA signer)
-    // CPI: 更新 Committed.sale_token_claimed += sale_token_to_claim
-    // CPI: 更新 Auction.bins[committed.bin_id].sale_token_claimed += sale_token_to_claim
-    // MSG "Claimed {} sale tokens (partial) from bin {} by user {} (fee: {})"
+    // CPI: close Committed account if all claimable sale token and refundable payment token are all transfered
+
+    // MSG "Claimed {} sale tokens and {} payment token refund from bin {} by user {} (fee: {})"
 }
 ```
 
 ### `withdraw_funds()`
 
 ```rust
-/// 管理员提取此次活动募集到的 `$bbSol` 和未出售的 `$DAI`
+/// 管理员提取此次活动所有梯度募集到的 `$bbSol` 和未出售的 `$DAI`
 pub fn withdraw_funds(ctx: Context{
     authority: Signer,
     auction: Auction,
@@ -382,43 +343,44 @@ pub fn withdraw_funds(ctx: Context{
     authority_sale_token: TokenAccount,
     authority_payment_token: TokenAccount,
     token_program: TokenProgram,
-}, bin_id) {
+}) {
     // CHECK: Context validation
     // CHECK: auction.claim_start_time <= CURRENT
     // CHECK: auction.authority == authority.key()
-    // CHECK: bin_id valid in auction
-    // CHECK: !bin.funds_withdrawn
 
-    // CALC: payment_tokens_to_withdraw = bin.payment_token_raised
-    // CALC: sale_tokens_to_withdraw = total_sale_tokens_for_bin - bin.sale_token_claimed
+    // CALC: 遍历所有梯度，计算总的 payment_tokens_to_withdraw 和 sale_tokens_to_withdraw
+    // NOTE: 可以多次提取，不再有单次提取限制
 
-    // CPI: bin.funds_withdrawn = true
-    // CPI: transfer payment_tokens_to_withdraw from vault to authority (if > 0)
-    // CPI: transfer sale_tokens_to_withdraw from vault to authority (if > 0)
-    // MSG "Withdrew {} payment tokens and {} unsold sale tokens from bin {}"
+    // CPI: transfer total payment_tokens_to_withdraw from vault to authority (if > 0)
+    // CPI: transfer total sale_tokens_to_withdraw from vault to authority (if > 0)
+    // MSG "Withdrew {} payment tokens and {} unsold sale tokens from all bins"
 }
 ```
 
 ### `withdraw_fees()`
 
 ```rust
-/// 管理员提取此次活动收集到的 claim fee `$Sol`
+/// 管理员提取此次活动收集到的手续费
 pub fn withdraw_fees(ctx: Context{
     authority: Signer,
     auction: Auction,
-    system_program: SystemProgram,
-}, bin_id) {
+    vault_payment_token: TokenAccount,
+    fee_recipient_account: TokenAccount,
+    token_program: TokenProgram,
+}) {
     // CHECK: Context validation
     // CHECK: auction.claim_start_time <= CURRENT
     // CHECK: auction.authority == authority.key()
-    // CHECK: bin_id valid in auction
 
-    // CALC: total_sale_tokens_for_bin = bin.payment_token_cap / bin.sale_token_price
-    // CHECK: bin.sale_token_claimed == total_sale_tokens_for_bin (all tokens claimed)
+    // CALC: 遍历所有梯度，计算总的手续费
+    // CPI: transfer total fees from vault_payment_token to fee_recipient_account
+    // MSG "Withdrew {} fees to recipient {} from all bins"
+    // CHECK: auction.claim_start_time <= CURRENT
+    // CHECK: auction.authority == authority.key()
     // CHECK: auction account SOL balance > 0
 
-    // CPI: transfer all SOL from auction account to authority
-    // MSG "Withdrew {} SOL fees from bin {} by authority {}"
+    // CPI: transfer all SOL from auction account to fee_recipient
+    // MSG "Withdrew {} SOL fees to recipient {} by authority {}"
 }
 ```
 
@@ -443,19 +405,43 @@ pub fn set_price(ctx: Context{
 }
 ```
 
+### `get_launchpad_admin()`
+
+```rust
+/// 查询硬编码的 LaunchpadAdmin 公钥
+pub fn get_launchpad_admin() -> Result<Pubkey> {
+    // RETURN: 硬编码的 LAUNCHPAD_ADMIN 常量
+    // MSG "LaunchpadAdmin pubkey: {}"
+}
+```
+
 ## Extensions
 
 ### 白名单限制
 
 若配置 `whitelist_authority`，则限制只有白名单授权用户才能参与认购；Custody 不受限制。
 
-在 [`commit()`](#commit) 和 [`revert_commit()`](#revert_commit) 时，如果用户是 Custody 账户，则跳过限制。否则需要验证白名单授权
+在 [`commit()`](#commit) 和 [`decrease_commit()`](#decrease_commit) 时，如果用户是 Custody 账户，则跳过限制。否则需要验证白名单授权
 
 ### 认购额度限制
 
-若配置 `commit_cap_per_user`，则限制普通用户的认购额度；Custody 不受限制。
+若配置 `commit_cap_per_user`，则限制普通用户在所有梯度的总认购额度；Custody 不受限制。
 
-在 [`commit()`](#commit) 时，如果用户是 Custody 账户，则跳过限制。否则检查用户的总认购额度（当前已认购 + 新认购）是否超过限制。
+在 [`commit()`](#commit) 时，如果用户是 Custody 账户，则跳过限制。否则检查用户在所有梯度的总认购额度（当前已认购 + 新认购）是否超过限制。计算公式为：
+
+```rust
+// 计算用户在所有梯度的总认购金额
+let total_committed: u64 = committed.bins.iter()
+    .map(|bin| bin.payment_token_committed)
+    .sum();
+
+// 验证新的认购不会超过限制
+if let Some(cap) = auction.extensions.commit_cap_per_user {
+    if total_committed + new_commitment > cap {
+        return Err(ResetErrorCode::CommitCapExceeded.into());
+    }
+}
+```
 
 ### Claim Fee Rate
 
@@ -465,25 +451,34 @@ pub fn set_price(ctx: Context{
 
 ## 分配算法
 
-当前实现使用精确的固定点算术来计算分配比例，避免浮点运算的精度问题：
+当前实现基于 `sale_token_cap`（发行量上限）进行分配计算：
 
 ```rust
-// 精度因子：10^9，提供9位小数精度
-const PRECISION_FACTOR: u64 = 1_000_000_000;
+// 获取用户在指定梯度的认购信息
+let committed_bin = committed.find_bin(bin_id).ok_or(ResetErrorCode::InvalidBinId)?;
 
-// 分配比例计算
-if raised_amount <= target_amount {
-    // 未超募：100% 分配
-    allocation_ratio = PRECISION_FACTOR
+// 计算用户期望的 sale tokens
+let user_desired_sale_tokens = committed_bin.payment_token_committed / bin.sale_token_price;
+
+// 计算总需求的 sale tokens
+let total_sale_tokens_demanded = bin.payment_token_raised / bin.sale_token_price;
+
+// 分配计算
+let total_sale_tokens_entitled = if total_sale_tokens_demanded <= bin.sale_token_cap {
+    // 未超募：用户获得全部期望的代币
+    user_desired_sale_tokens
 } else {
     // 超募：按比例分配
-    allocation_ratio = (target_amount * PRECISION_FACTOR) / raised_amount
-}
+    (user_desired_sale_tokens as u128 * bin.sale_token_cap as u128
+        / total_sale_tokens_demanded as u128) as u64
+};
 
-// 用户有效认购金额
-effective_payment = (user_committed * allocation_ratio) / PRECISION_FACTOR
-// 用户可认领代币数量
-claimable_tokens = effective_payment / sale_token_price
-// 用户退款金额
-refund_amount = user_committed - effective_payment
+// 退款计算
+let total_payment_refund_entitled = if total_sale_tokens_demanded > bin.sale_token_cap {
+    // 超募：退回超额支付
+    let effective_payment = total_sale_tokens_entitled * bin.sale_token_price;
+    committed_bin.payment_token_committed - effective_payment
+} else {
+    0
+};
 ```
