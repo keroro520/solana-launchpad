@@ -53,6 +53,8 @@ pub enum ResetErrorCode {
     CommitCapExceeded = 6405,
     #[msg("Exceeds tier cap")]
     ExceedsTierCap = 6406,
+    #[msg("Invalid input")]
+    InvalidInput = 6407,
 
     // System Errors (6500-6599)
     #[msg("System error")]

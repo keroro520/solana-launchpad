@@ -965,3 +965,269 @@ pub struct SetPrice<'info> {
 pub struct GetLaunchpadAdmin {
     // No accounts needed for this read-only instruction
 }
+
+/// User claims from multiple bins in a single transaction
+pub fn claim_many(ctx: Context<ClaimMany>, claims: Vec<ClaimBinParams>) -> Result<()> {
+    let current_time = Clock::get()?.unix_timestamp;
+
+    // Store keys and values before borrowing mutably
+    let auction_key = ctx.accounts.auction.key();
+    let vault_sale_bump = ctx.accounts.auction.vault_sale_bump;
+    let vault_payment_bump = ctx.accounts.auction.vault_payment_bump;
+    let claim_start_time = ctx.accounts.auction.claim_start_time;
+    let user_key = ctx.accounts.user.key();
+    let committed_user = ctx.accounts.committed.user;
+
+    // Timing validation - can only claim after claim period starts
+    if current_time < claim_start_time {
+        return Err(ResetErrorCode::ClaimNotStarted.into());
+    }
+
+    // Validate user owns this commitment
+    if committed_user != user_key {
+        return Err(ResetErrorCode::Unauthorized.into());
+    }
+
+    // Validate claims input
+    if claims.is_empty() {
+        return Err(ResetErrorCode::InvalidInput.into());
+    }
+
+    // Validate no duplicate bin_ids in claims
+    let mut bin_ids = std::collections::HashSet::new();
+    for claim in &claims {
+        if !bin_ids.insert(claim.bin_id) {
+            return Err(ResetErrorCode::InvalidInput.into());
+        }
+    }
+
+    let auction = &mut ctx.accounts.auction;
+    let committed = &mut ctx.accounts.committed;
+
+    let mut total_sale_tokens_to_claim = 0u64;
+    let mut total_payment_tokens_to_refund = 0u64;
+
+    // First pass: validate all claims and calculate totals
+    for claim in &claims {
+        // Find the specific bin commitment
+        let committed_bin = committed
+            .find_bin(claim.bin_id)
+            .ok_or(ResetErrorCode::InvalidBinId)?;
+
+        // Get the auction bin for calculations
+        let bin = auction.get_bin(claim.bin_id)?;
+
+        // Calculate what user is entitled to based on allocation algorithm
+        let user_desired_sale_tokens = committed_bin.payment_token_committed / bin.sale_token_price;
+        let total_sale_tokens_demanded = bin.payment_token_raised / bin.sale_token_price;
+
+        let total_sale_tokens_entitled = if total_sale_tokens_demanded <= bin.sale_token_cap {
+            // Undersubscribed: user gets all they want
+            user_desired_sale_tokens
+        } else {
+            // Oversubscribed: user gets proportional allocation
+            (user_desired_sale_tokens as u128 * bin.sale_token_cap as u128
+                / total_sale_tokens_demanded as u128) as u64
+        };
+
+        let total_payment_refund_entitled = if total_sale_tokens_demanded > bin.sale_token_cap {
+            // Oversubscribed: refund the excess payment
+            let effective_payment = total_sale_tokens_entitled * bin.sale_token_price;
+            committed_bin.payment_token_committed - effective_payment
+        } else {
+            0
+        };
+
+        // Calculate remaining claimable amounts
+        let remaining_sale_tokens =
+            total_sale_tokens_entitled.saturating_sub(committed_bin.sale_token_claimed);
+        let remaining_payment_refund = total_payment_refund_entitled;
+
+        // Validate requested amounts don't exceed entitlements
+        if claim.sale_token_to_claim > remaining_sale_tokens {
+            return Err(ResetErrorCode::InsufficientBalance.into());
+        }
+        if claim.payment_token_to_refund > remaining_payment_refund {
+            return Err(ResetErrorCode::InsufficientBalance.into());
+        }
+
+        // Add to totals
+        total_sale_tokens_to_claim = total_sale_tokens_to_claim
+            .checked_add(claim.sale_token_to_claim)
+            .ok_or(ResetErrorCode::MathOverflow)?;
+        total_payment_tokens_to_refund = total_payment_tokens_to_refund
+            .checked_add(claim.payment_token_to_refund)
+            .ok_or(ResetErrorCode::MathOverflow)?;
+    }
+
+    // Transfer total sale tokens if any
+    if total_sale_tokens_to_claim > 0 {
+        let vault_sale_seeds = &[VAULT_SALE_SEED, auction_key.as_ref(), &[vault_sale_bump]];
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.vault_sale_token.to_account_info(),
+                    to: ctx.accounts.user_sale_token.to_account_info(),
+                    authority: ctx.accounts.vault_sale_token.to_account_info(),
+                },
+                &[vault_sale_seeds],
+            ),
+            total_sale_tokens_to_claim,
+        )?;
+    }
+
+    // Transfer total payment token refund if any
+    if total_payment_tokens_to_refund > 0 {
+        let vault_payment_seeds = &[
+            VAULT_PAYMENT_SEED,
+            auction_key.as_ref(),
+            &[vault_payment_bump],
+        ];
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.vault_payment_token.to_account_info(),
+                    to: ctx.accounts.user_payment_token.to_account_info(),
+                    authority: ctx.accounts.vault_payment_token.to_account_info(),
+                },
+                &[vault_payment_seeds],
+            ),
+            total_payment_tokens_to_refund,
+        )?;
+    }
+
+    // Second pass: update state for each claim
+    for claim in &claims {
+        // Find the specific bin commitment (mutable)
+        let committed_bin = committed
+            .find_bin_mut(claim.bin_id)
+            .ok_or(ResetErrorCode::InvalidBinId)?;
+
+        // Get the auction bin for updates (mutable)
+        let bin = auction.get_bin_mut(claim.bin_id)?;
+
+        // Update state
+        committed_bin.sale_token_claimed = committed_bin
+            .sale_token_claimed
+            .checked_add(claim.sale_token_to_claim)
+            .ok_or(ResetErrorCode::MathOverflow)?;
+
+        bin.sale_token_claimed = bin
+            .sale_token_claimed
+            .checked_add(claim.sale_token_to_claim)
+            .ok_or(ResetErrorCode::MathOverflow)?;
+    }
+
+    // Check if all bins are fully claimed for account closure
+    let all_bins_fully_claimed = committed.bins.iter().all(|committed_bin| {
+        // Calculate entitlements for this bin
+        let bin_data = auction.get_bin(committed_bin.bin_id).unwrap();
+        let bin_desired_sale_tokens =
+            committed_bin.payment_token_committed / bin_data.sale_token_price;
+        let bin_total_demanded = bin_data.payment_token_raised / bin_data.sale_token_price;
+
+        let bin_entitled_sale_tokens = if bin_total_demanded <= bin_data.sale_token_cap {
+            bin_desired_sale_tokens
+        } else {
+            (bin_desired_sale_tokens as u128 * bin_data.sale_token_cap as u128
+                / bin_total_demanded as u128) as u64
+        };
+
+        let bin_entitled_refund = if bin_total_demanded > bin_data.sale_token_cap {
+            let effective_payment = bin_entitled_sale_tokens * bin_data.sale_token_price;
+            committed_bin.payment_token_committed - effective_payment
+        } else {
+            0
+        };
+
+        // Check if this bin is fully claimed
+        committed_bin.sale_token_claimed >= bin_entitled_sale_tokens && bin_entitled_refund == 0
+    });
+
+    if all_bins_fully_claimed {
+        // Close the committed account and return the rent to the user
+        let committed_account_info = ctx.accounts.committed.to_account_info();
+        let dest_account_info = ctx.accounts.user.to_account_info();
+
+        let rent_lamports = committed_account_info.lamports();
+        **committed_account_info.try_borrow_mut_lamports()? = 0;
+        **dest_account_info.try_borrow_mut_lamports()? = dest_account_info
+            .lamports()
+            .checked_add(rent_lamports)
+            .ok_or(ResetErrorCode::MathOverflow)?;
+
+        // Zero out the account data
+        let mut committed_data = committed_account_info.try_borrow_mut_data()?;
+        for byte in committed_data.iter_mut() {
+            *byte = 0;
+        }
+
+        msg!(
+            "User {} fully claimed all bins - account closed and rent returned",
+            user_key
+        );
+    }
+
+    msg!(
+        "User {} claimed {} sale tokens and {} payment refund from {} bins",
+        ctx.accounts.user.key(),
+        total_sale_tokens_to_claim,
+        total_payment_tokens_to_refund,
+        claims.len()
+    );
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct ClaimMany<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+
+    #[account(mut)]
+    pub auction: Account<'info, Auction>,
+
+    #[account(mut)]
+    pub committed: Account<'info, Committed>,
+
+    /// Sale token mint
+    pub sale_token_mint: Account<'info, Mint>,
+
+    /// User's sale token account (will be created if needed)
+    #[account(
+        init_if_needed,
+        payer = user,
+        associated_token::mint = sale_token_mint,
+        associated_token::authority = user
+    )]
+    pub user_sale_token: Account<'info, TokenAccount>,
+
+    /// User's payment token account for refunds
+    #[account(
+        mut,
+        constraint = user_payment_token.mint == auction.payment_token,
+        constraint = user_payment_token.owner == user.key()
+    )]
+    pub user_payment_token: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        seeds = [VAULT_SALE_SEED, auction.key().as_ref()],
+        bump = auction.vault_sale_bump
+    )]
+    pub vault_sale_token: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        seeds = [VAULT_PAYMENT_SEED, auction.key().as_ref()],
+        bump = auction.vault_payment_bump
+    )]
+    pub vault_payment_token: Account<'info, TokenAccount>,
+
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}

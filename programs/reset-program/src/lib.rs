@@ -64,6 +64,11 @@ pub mod reset_program {
         instructions::claim(ctx, bin_id, sale_token_to_claim, payment_token_to_refund)
     }
 
+    /// User claims from multiple bins in a single transaction
+    pub fn claim_many(ctx: Context<ClaimMany>, claims: Vec<ClaimBinParams>) -> Result<()> {
+        instructions::claim_many(ctx, claims)
+    }
+
     /// Admin withdraws funds from all auction tiers (simplified - no bin_id)
     pub fn withdraw_funds(ctx: Context<WithdrawFunds>) -> Result<()> {
         instructions::withdraw_funds(ctx)
