@@ -419,4 +419,44 @@ export function calculateClaimableAmount(
 
 export function calculateSaleTokens(paymentTokens: BN, price: BN): BN {
   return paymentTokens.div(price);
+}
+
+/**
+ * Helper function to commit to auction for a specific user
+ */
+export async function commitToAuction(
+  ctx: AuctionContext,
+  user: Keypair,
+  binId: number,
+  paymentTokenAmount: number
+): Promise<void> {
+  // Find user's payment token account
+  const userPaymentToken = getAssociatedTokenAddressSync(
+    ctx.paymentTokenMint,
+    user.publicKey
+  );
+
+  // Find committed PDA for user
+  const [committedPda] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from(COMMITTED_SEED),
+      ctx.auctionPda.toBuffer(),
+      user.publicKey.toBuffer(),
+    ],
+    ctx.program.programId
+  );
+
+  await ctx.program.methods
+    .commit(binId, new BN(paymentTokenAmount))
+    .accounts({
+      user: user.publicKey,
+      auction: ctx.auctionPda,
+      committed: committedPda,
+      user_payment_token: userPaymentToken,
+      vault_payment_token: ctx.vault_payment_token,
+      token_program: TOKEN_PROGRAM_ID,
+      system_program: SystemProgram.programId,
+    })
+    .signers([user])
+    .rpc();
 } 

@@ -105,6 +105,9 @@ pub fn init_auction(
         auction.extensions = AuctionExtensions::default();
     }
 
+    // Initialize participant count
+    auction.total_participants = 0;
+
     auction.bump = ctx.bumps.auction;
 
     // Calculate total sale tokens needed for all bins
@@ -171,12 +174,14 @@ pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) ->
         payment_token_committed,
     )?;
 
-    // Validate bin_id and get bin
-    let bin = auction.get_bin_mut(bin_id)?;
+    // Store bin info before mutable borrow
+    let bin_price = auction.get_bin(bin_id)?.sale_token_price;
+    let bin_claimed = auction.get_bin(bin_id)?.sale_token_claimed;
+    let bin_cap = auction.get_bin(bin_id)?.sale_token_cap;
 
     // Check if commitment would exceed tier cap (convert payment tokens to sale tokens)
-    let sale_tokens_from_commitment = payment_token_committed / bin.sale_token_price;
-    if bin.sale_token_claimed + sale_tokens_from_commitment > bin.sale_token_cap {
+    let sale_tokens_from_commitment = payment_token_committed / bin_price;
+    if bin_claimed + sale_tokens_from_commitment > bin_cap {
         return Err(ResetErrorCode::ExceedsTierCap.into());
     }
 
@@ -189,8 +194,11 @@ pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) ->
         return Err(ResetErrorCode::InvalidPDA.into());
     }
 
+    // Track if this is a new participant
+    let is_new_participant = ctx.accounts.committed.data_is_empty();
+
     // Handle committed account creation/update
-    if ctx.accounts.committed.data_is_empty() {
+    if is_new_participant {
         // Create new committed account with space for 1 bin initially
         let rent = Rent::get()?;
         let space = Committed::space_for_bins(1);
@@ -226,6 +234,12 @@ pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) ->
             bump: _committed_bump,
         };
         committed.serialize(&mut committed_data.as_mut())?;
+
+        // Increment participant count for new user
+        auction.total_participants = auction
+            .total_participants
+            .checked_add(1)
+            .ok_or(ResetErrorCode::MathOverflow)?;
     } else {
         // Update existing committed account
         let mut committed_data = ctx.accounts.committed.try_borrow_mut_data()?;
@@ -260,6 +274,7 @@ pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) ->
     }
 
     // Update bin state
+    let bin = auction.get_bin_mut(bin_id)?;
     bin.payment_token_raised += payment_token_committed;
 
     // Transfer payment tokens to vault

@@ -118,6 +118,10 @@ struct Auction {
 
         // extensions
         extensions: AuctionExtensions,
+        
+        // statistics
+        total_participants: u64,  // 参与此次募资活动的总用户数目
+        
         bump: u8,
     }
 }

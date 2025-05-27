@@ -30,6 +30,9 @@ pub struct Auction {
     /// Extension configuration (directly embedded)
     pub extensions: AuctionExtensions,
 
+    /// Total number of unique participants in this auction
+    pub total_participants: u64,
+
     /// Vault PDA bump seeds for derivation
     pub vault_sale_bump: u8,
     pub vault_payment_bump: u8,
@@ -38,7 +41,7 @@ pub struct Auction {
 }
 
 impl Auction {
-    pub const BASE_SPACE: usize = 8 + 32 * 4 + 8 * 3 + 4 + (33 + 9 + 9) + 1 + 1 + 1; // Removed launchpad field, added vault bumps
+    pub const BASE_SPACE: usize = 8 + 32 * 4 + 8 * 3 + 4 + (33 + 9 + 9) + 8 + 1 + 1 + 1; // Added total_participants (8 bytes)
     pub const SPACE_PER_BIN: usize = 8 + 8 + 8 + 8 + 1; // 33 bytes per bin
 
     /// Calculate space needed for auction with given number of bins

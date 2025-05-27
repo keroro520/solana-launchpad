@@ -1019,6 +1019,13 @@ export type ResetProgram = {
             }
           },
           {
+            "name": "totalParticipants",
+            "docs": [
+              "Total number of unique participants in this auction"
+            ],
+            "type": "u64"
+          },
+          {
             "name": "vaultSaleBump",
             "docs": [
               "Vault PDA bump seeds for derivation"

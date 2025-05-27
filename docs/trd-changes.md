@@ -15,6 +15,7 @@
   - 增加了 `vault_sale_bump` 和 `vault_payment_bump` 字段，直接存储 vault PDA bump 信息
   - 修改了 `AuctionBin.payment_token_cap` 更改为 `sale_token_cap`，以 sale token 为单位来表示梯度发行量上限
   - 移除了 `funds_withdrawn` 字段，允许多次提取资金
+  - 增加了 `participants`，用于统计参与此次活动的总人数
 
 ## 指令
 
