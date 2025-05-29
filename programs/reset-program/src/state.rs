@@ -6,6 +6,31 @@ pub const COMMITTED_SEED: &[u8] = b"committed";
 pub const VAULT_SALE_SEED: &[u8] = b"vault_sale";
 pub const VAULT_PAYMENT_SEED: &[u8] = b"vault_payment";
 
+/// Emergency control operation flags
+pub mod emergency_flags {
+    pub const PAUSE_AUCTION_COMMIT: u64 = 1 << 0; // 0x01
+    pub const PAUSE_AUCTION_CLAIM: u64 = 1 << 1; // 0x02
+    pub const PAUSE_AUCTION_WITHDRAW_FEES: u64 = 1 << 2; // 0x04
+    pub const PAUSE_AUCTION_WITHDRAW_FUNDS: u64 = 1 << 3; // 0x08
+}
+
+/// Emergency control state (embedded in Auction)
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default)]
+pub struct EmergencyState {
+    /// Paused operations bitmask
+    pub paused_operations: u64,
+}
+
+/// Emergency control parameters for instruction
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct EmergencyControlParams {
+    pub auction_id: Pubkey,
+    pub pause_auction_commit: bool,
+    pub pause_auction_claim: bool,
+    pub pause_auction_withdraw_fees: bool,
+    pub pause_auction_withdraw_funds: bool,
+}
+
 /// Core auction data account
 /// PDA: ["auction", sale_token_mint]
 #[account]
@@ -30,6 +55,9 @@ pub struct Auction {
     /// Extension configuration (directly embedded)
     pub extensions: AuctionExtensions,
 
+    /// Emergency control state (newly added)
+    pub emergency_state: EmergencyState,
+
     /// Total number of unique participants in this auction
     pub total_participants: u64,
 
@@ -41,7 +69,7 @@ pub struct Auction {
 }
 
 impl Auction {
-    pub const BASE_SPACE: usize = 8 + 32 * 4 + 8 * 3 + 4 + (33 + 9 + 9) + 8 + 1 + 1 + 1; // Added total_participants (8 bytes)
+    pub const BASE_SPACE: usize = 8 + 32 * 4 + 8 * 3 + 4 + (33 + 9 + 9) + 8 + 8 + 1 + 1 + 1; // Added emergency_state (8 bytes)
     pub const SPACE_PER_BIN: usize = 8 + 8 + 8 + 8 + 1; // 33 bytes per bin
 
     /// Calculate space needed for auction with given number of bins
@@ -82,6 +110,14 @@ impl Auction {
     pub fn total_bins(&self) -> u8 {
         self.bins.len() as u8
     }
+}
+
+/// Check if an operation is paused by emergency control
+pub fn check_emergency_state(auction: &Auction, operation_flag: u64) -> Result<()> {
+    if auction.emergency_state.paused_operations & operation_flag != 0 {
+        return Err(crate::errors::ResetErrorCode::OperationPaused.into());
+    }
+    Ok(())
 }
 
 /// Individual auction tier data

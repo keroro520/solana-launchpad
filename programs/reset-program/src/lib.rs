@@ -40,6 +40,14 @@ pub mod reset_program {
         )
     }
 
+    /// Emergency control for pausing/resuming auction operations
+    pub fn emergency_control(
+        ctx: Context<EmergencyControl>,
+        params: EmergencyControlParams,
+    ) -> Result<()> {
+        instructions::emergency_control(ctx, params)
+    }
+
     /// User commits to an auction tier
     pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) -> Result<()> {
         instructions::commit(ctx, bin_id, payment_token_committed)

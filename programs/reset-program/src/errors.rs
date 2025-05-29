@@ -56,6 +56,10 @@ pub enum ResetErrorCode {
     #[msg("Invalid input")]
     InvalidInput = 6407,
 
+    // Emergency Control Errors (6600-6699)
+    #[msg("Operation is paused by emergency control")]
+    OperationPaused = 6600,
+
     // System Errors (6500-6599)
     #[msg("System error")]
     SystemError = 6500,

@@ -16,6 +16,7 @@
   - 修改了 `AuctionBin.payment_token_cap` 更改为 `sale_token_cap`，以 sale token 为单位来表示梯度发行量上限
   - 移除了 `funds_withdrawn` 字段，允许多次提取资金
   - 增加了 `participants`，用于统计参与此次活动的总人数
+  - **新增 `emergency_state: EmergencyState` 字段**：用于存储紧急风控状态，支持暂停/恢复各种操作
 
 ## 指令
 
@@ -32,15 +33,10 @@
 - **`withdraw_funds()`**：
   - 移除了 `bin_id` 参数
   - 改为提取所有梯度的资金，支持多次提取
-  - 改为“认购结束后即可发生”
+  - 改为"认购结束后即可发生"
 
 - **`withdraw_fees()`**：
   - 增加了 `fee_recipient_account` 参数，将手续费发送到该账户
-  - 移除原 TRD-Draft 文档要求 `withdraw_fees` “必须要等到用户都提取提取后才可以操作” 的限制
+  - 移除原 TRD-Draft 文档要求 `withdraw_fees` "必须要等到用户都提取提取后才可以操作" 的限制
 
-- **新增 `get_launchpad_admin()` 指令**：
-  - 返回硬编码的 LaunchpadAdmin 公钥
-
-## 扩展功能
-
-- 认购额度限制: 由单个梯度的限制改为用户在所有梯度的总认购额度限制
+- **新增 `get_launchpad_admin()`

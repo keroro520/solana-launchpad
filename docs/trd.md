@@ -69,6 +69,7 @@ END
 | Instruction | Description |
 | :--- | :--- |
 | `init_auction` | 当准备一次募资活动时，创建一个 Auction 募资活动账户，自动创建金库 PDA 并转入初始代币 |
+| `emergency_control` | （管理员）紧急风控指令，可以暂停/恢复指定的拍卖操作，支持细粒度控制 |
 | `commit` | 用户认购，用户指定目标梯度和认购数额。合约会自动给用户创建对应的 Committed 账户，用于存储认购信息，并将相应的 `$bbSol` 从 UserPaymentTokenAccount 转入 VaultPaymentTokenAccount |
 | `decrease_commit` | 用户减少认购，用户指定目标梯度和减少认购的数额。合约更新 Committed 账户中对应梯度的认购信息，并将相应的 `$bbSol` 从 VaultPaymentTokenAccount 转出 UserPaymentTokenAccount |
 | `claim`  | 用户 **灵活认领指定梯度的指定数量的`$DAI`和`$bbSol`**。支持部分认领，用户可以指定要认领的梯度、sale token 数量和要退回的 payment token 数量 |
@@ -119,6 +120,9 @@ struct Auction {
         // extensions
         extensions: AuctionExtensions,
         
+        // emergency control
+        emergency_state: EmergencyState,
+        
         // statistics
         total_participants: u64,  // 参与此次募资活动的总用户数目
         
@@ -137,6 +141,25 @@ struct AuctionExtensions {
     whitelist_authority: Option<Pubkey>,        // 白名单授权账户
     commit_cap_per_user: Option<u64>,          // 用户认购限额
     claim_fee_rate: Option<u16>,               // 认领手续费率（基点，如100=1%）
+}
+```
+
+### EmergencyState (Embedded)
+
+紧急风控状态，直接嵌入在 `Auction` 结构体中，用于控制各个操作的暂停/恢复状态。
+
+```rust
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default)]
+struct EmergencyState {
+    paused_operations: u64,  // 暂停操作的位标记，每个位代表一个操作的暂停状态
+}
+
+// 操作标志位定义
+pub mod emergency_flags {
+    pub const PAUSE_AUCTION_COMMIT: u64        = 1 << 0;  // 0x01 - 暂停认购操作
+    pub const PAUSE_AUCTION_CLAIM: u64         = 1 << 1;  // 0x02 - 暂停认领操作  
+    pub const PAUSE_AUCTION_WITHDRAW_FEES: u64 = 1 << 2;  // 0x04 - 暂停提取手续费
+    pub const PAUSE_AUCTION_WITHDRAW_FUNDS: u64 = 1 << 3; // 0x08 - 暂停提取资金
 }
 ```
 
@@ -230,6 +253,41 @@ pub fn init_auction(Context{
 }
 ```
 
+### `emergency_control()`
+
+```rust
+/// 紧急风控指令，暂停/恢复拍卖操作
+pub fn emergency_control(Context{
+    authority: Signer,                      // 必须是拍卖的 authority（硬编码的 LaunchpadAdmin）
+    auction: Auction,                       // 目标拍卖账户，address = params.auction_id
+}, params: EmergencyControlParams) {
+    // CHECK: authority 必须等于 auction.authority（权限验证）
+    // CHECK: Context validation
+    // CHECK: params.auction_id 匹配 auction 账户地址
+
+    // CALC: 根据参数构建新的暂停操作位标记
+    let mut new_paused_operations = 0u64;
+    if params.pause_auction_commit { new_paused_operations |= PAUSE_AUCTION_COMMIT; }
+    if params.pause_auction_claim { new_paused_operations |= PAUSE_AUCTION_CLAIM; }
+    if params.pause_auction_withdraw_fees { new_paused_operations |= PAUSE_AUCTION_WITHDRAW_FEES; }
+    if params.pause_auction_withdraw_funds { new_paused_operations |= PAUSE_AUCTION_WITHDRAW_FUNDS; }
+    
+    // CPI: 更新 auction.emergency_state.paused_operations = new_paused_operations
+    // EVENT: 发出 EmergencyControlEvent 事件，记录操作详情
+    // MSG "Emergency control updated for auction {}: paused_operations = {}"
+}
+
+// 参数结构
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+struct EmergencyControlParams {
+    auction_id: Pubkey,                     // 目标拍卖账户 ID
+    pause_auction_commit: bool,             // 是否暂停认购操作
+    pause_auction_claim: bool,              // 是否暂停认领操作
+    pause_auction_withdraw_fees: bool,      // 是否暂停提取手续费操作
+    pause_auction_withdraw_funds: bool,     // 是否暂停提取资金操作
+}
+```
+
 ### `commit()`
 
 ```rust
@@ -251,8 +309,10 @@ pub fn commit(Context{
     // CHECK: vault_payment_token matches auction vault PDA
     // CHECK: commitment doesn't exceed tier capacity (convert payment to sale tokens for comparison)
     
+    // EMERGENCY: 检查认购操作是否被暂停
+    check_emergency_state(auction, PAUSE_AUCTION_COMMIT);
+    
     // EXTENSION: Validate whitelist (if enabled)
-    // EXTENSION: Validate commit cap per user (if enabled)
 
     // CPI: 创建 Committed PDA 账户 if not existed (manual account creation with initial space for 1 bin)
     // CPI: 更新或添加 Committed 账户中的梯度信息：
@@ -282,6 +342,9 @@ pub fn decrease_commit(Context{
     // CHECK: payment_token_reverted > 0
     // CHECK: bin_id valid in auction
     // CHECK: committed.bins[bin_id].payment_token_committed >= payment_token_reverted
+    
+    // EMERGENCY: 检查认购操作是否被暂停（decrease_commit 使用相同的 commit 标志位）
+    check_emergency_state(auction, PAUSE_AUCTION_COMMIT);
     
     // EXTENSION: Validate whitelist (if enabled)
 
@@ -314,6 +377,9 @@ pub fn claim(ctx: Context{
     // CHECK: committed.user == user.key() (ownership validation)
     // CHECK: bin_id valid in auction
     // CHECK: sale_token_to_claim > 0 || payment_token_to_refund > 0
+
+    // EMERGENCY: 检查认领操作是否被暂停
+    check_emergency_state(auction, PAUSE_AUCTION_CLAIM);
 
     // CALC: claimable_amounts using allocation algorithm for specific bin
     // CHECK: committed.bins[bin_id].sale_token_claimed + sale_token_to_claim <= claimable_amounts.sale_tokens
@@ -352,6 +418,9 @@ pub fn withdraw_funds(ctx: Context{
     // CHECK: auction.claim_start_time <= CURRENT
     // CHECK: auction.authority == authority.key()
 
+    // EMERGENCY: 检查提取资金操作是否被暂停
+    check_emergency_state(auction, PAUSE_AUCTION_WITHDRAW_FUNDS);
+
     // CALC: 遍历所有梯度，计算总的 payment_tokens_to_withdraw 和 sale_tokens_to_withdraw
     // NOTE: 可以多次提取，不再有单次提取限制
 
@@ -375,6 +444,9 @@ pub fn withdraw_fees(ctx: Context{
     // CHECK: Context validation
     // CHECK: auction.claim_start_time <= CURRENT
     // CHECK: auction.authority == authority.key()
+
+    // EMERGENCY: 检查提取手续费操作是否被暂停
+    check_emergency_state(auction, PAUSE_AUCTION_WITHDRAW_FEES);
 
     // CALC: 遍历所有梯度，计算总的手续费
     // CPI: transfer total fees from vault_payment_token to fee_recipient_account

@@ -132,6 +132,48 @@ pub fn init_auction(
     Ok(())
 }
 
+/// Emergency control for pausing/resuming auction operations
+pub fn emergency_control(
+    ctx: Context<EmergencyControl>,
+    params: EmergencyControlParams,
+) -> Result<()> {
+    let auction = &mut ctx.accounts.auction;
+
+    // Construct new paused operations bitmask
+    let mut new_paused_operations = 0u64;
+
+    if params.pause_auction_commit {
+        new_paused_operations |= emergency_flags::PAUSE_AUCTION_COMMIT;
+    }
+    if params.pause_auction_claim {
+        new_paused_operations |= emergency_flags::PAUSE_AUCTION_CLAIM;
+    }
+    if params.pause_auction_withdraw_fees {
+        new_paused_operations |= emergency_flags::PAUSE_AUCTION_WITHDRAW_FEES;
+    }
+    if params.pause_auction_withdraw_funds {
+        new_paused_operations |= emergency_flags::PAUSE_AUCTION_WITHDRAW_FUNDS;
+    }
+
+    // Update emergency state
+    auction.emergency_state.paused_operations = new_paused_operations;
+
+    // Emit event
+    emit!(EmergencyControlEvent {
+        auction: auction.key(),
+        authority: ctx.accounts.authority.key(),
+        paused_operations: new_paused_operations,
+    });
+
+    msg!(
+        "Emergency control updated for auction {}: paused_operations = {}",
+        auction.key(),
+        new_paused_operations
+    );
+
+    Ok(())
+}
+
 /// User commits to an auction tier
 pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) -> Result<()> {
     let current_time = Clock::get()?.unix_timestamp;
@@ -140,6 +182,9 @@ pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) ->
     if payment_token_committed == 0 {
         return Err(ResetErrorCode::InvalidAmount.into());
     }
+
+    // Check emergency state - commit operations
+    check_emergency_state(&ctx.accounts.auction, emergency_flags::PAUSE_AUCTION_COMMIT)?;
 
     // Store keys before borrowing auction mutably
     let auction_key = ctx.accounts.auction.key();
@@ -312,6 +357,9 @@ pub fn decrease_commit(
         return Err(ResetErrorCode::InvalidAmount.into());
     }
 
+    // Check emergency state - commit operations (includes decrease_commit)
+    check_emergency_state(&ctx.accounts.auction, emergency_flags::PAUSE_AUCTION_COMMIT)?;
+
     let auction = &mut ctx.accounts.auction;
     let committed = &mut ctx.accounts.committed;
 
@@ -385,6 +433,9 @@ pub fn claim(
     payment_token_to_refund: u64,
 ) -> Result<()> {
     let current_time = Clock::get()?.unix_timestamp;
+
+    // Check emergency state - claim operations
+    check_emergency_state(&ctx.accounts.auction, emergency_flags::PAUSE_AUCTION_CLAIM)?;
 
     // Store keys and values before borrowing mutably
     let auction_key = ctx.accounts.auction.key();
@@ -570,6 +621,13 @@ pub fn claim(
 /// Admin withdraws funds from all auction tiers (simplified - no bin_id)
 pub fn withdraw_funds(ctx: Context<WithdrawFunds>) -> Result<()> {
     let current_time = Clock::get()?.unix_timestamp;
+
+    // Check emergency state - withdraw funds operations
+    check_emergency_state(
+        &ctx.accounts.auction,
+        emergency_flags::PAUSE_AUCTION_WITHDRAW_FUNDS,
+    )?;
+
     let auction = &mut ctx.accounts.auction;
 
     // Timing validation - can withdraw after commit period ends
@@ -652,6 +710,12 @@ pub fn withdraw_funds(ctx: Context<WithdrawFunds>) -> Result<()> {
 
 /// Admin withdraws collected fees from all tiers (simplified - no bin_id)
 pub fn withdraw_fees(ctx: Context<WithdrawFees>) -> Result<()> {
+    // Check emergency state - withdraw fees operations
+    check_emergency_state(
+        &ctx.accounts.auction,
+        emergency_flags::PAUSE_AUCTION_WITHDRAW_FEES,
+    )?;
+
     let auction = &mut ctx.accounts.auction;
 
     // Validate authority
@@ -964,4 +1028,28 @@ pub struct SetPrice<'info> {
 #[derive(Accounts)]
 pub struct GetLaunchpadAdmin {
     // No accounts needed for this read-only instruction
+}
+
+/// Emergency control context
+#[derive(Accounts)]
+#[instruction(params: EmergencyControlParams)]
+pub struct EmergencyControl<'info> {
+    /// Only auction authority can control emergency state
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        mut,
+        address = params.auction_id,
+        has_one = authority @ ResetErrorCode::Unauthorized
+    )]
+    pub auction: Account<'info, Auction>,
+}
+
+/// Emergency control event
+#[event]
+pub struct EmergencyControlEvent {
+    pub auction: Pubkey,
+    pub authority: Pubkey,
+    pub paused_operations: u64,
 }
