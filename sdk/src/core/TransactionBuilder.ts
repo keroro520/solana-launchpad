@@ -27,7 +27,6 @@ import {
 } from '../types/auction';
 import {
   ClaimAccounts,
-  ClaimManyAccounts,
   CommitAccounts,
   DecreaseCommitAccounts,
   InitAuctionAccounts,
@@ -309,7 +308,7 @@ export class TransactionBuilder {
   }
 
   /**
-   * Build ClaimMany transaction
+   * Build ClaimMany transaction (using multiple claim instructions)
    */
   async buildClaimManyTransaction(
     params: ClaimManyParams,
@@ -320,16 +319,6 @@ export class TransactionBuilder {
     // Get auction info
     const saleTokenMint = await this.getSaleTokenMint(params.auctionId);
     const paymentTokenMint = await this.getPaymentTokenMint(params.auctionId);
-
-    // Calculate PDAs
-    const [committedPda] = ResetPDA.findCommittedAddress(
-      params.auctionId,
-      user,
-      0, // Use 0 as placeholder since ClaimMany doesn't use bin-specific committed accounts
-      this.programId
-    );
-    const [vaultSaleToken] = ResetPDA.findSaleVaultAddress(params.auctionId, this.programId);
-    const [vaultPaymentToken] = ResetPDA.findPaymentVaultAddress(params.auctionId, this.programId);
 
     // Get or create user token accounts
     const userSaleTokenAccount = await getAssociatedTokenAddress(saleTokenMint, user);
@@ -347,46 +336,62 @@ export class TransactionBuilder {
       transaction.add(createATAInstruction);
     }
 
-    // Build accounts
-    const accounts: ClaimManyAccounts = {
-      user,
-      auction: params.auctionId,
-      committed: committedPda,
-      saleTokenMint,
-      userSaleToken: userSaleTokenAccount,
-      userPaymentToken: userPaymentTokenAccount,
-      vaultSaleToken,
-      vaultPaymentToken,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId
-    };
+    // Create multiple claim instructions, one for each claim
+    for (const claim of params.claims) {
+      // Calculate PDAs for this specific bin
+      const [committedPda] = ResetPDA.findCommittedAddress(
+        params.auctionId,
+        user,
+        claim.binId,
+        this.programId
+      );
+      const [vaultSaleToken] = ResetPDA.findSaleVaultAddress(params.auctionId, this.programId);
+      const [vaultPaymentToken] = ResetPDA.findPaymentVaultAddress(params.auctionId, this.programId);
 
-    // Serialize instruction data
-    const data = InstructionSerializer.serializeClaimMany({
-      claims: params.claims
-    });
+      // Build accounts for this claim
+      const accounts: ClaimAccounts = {
+        user,
+        auction: params.auctionId,
+        committed: committedPda,
+        saleTokenMint,
+        userSaleToken: userSaleTokenAccount,
+        userPaymentToken: userPaymentTokenAccount,
+        vaultSaleToken,
+        vaultPaymentToken,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId
+      };
 
-    // Build instruction
-    const instruction = new TransactionInstruction({
-      keys: [
-        { pubkey: accounts.user, isSigner: true, isWritable: true },
-        { pubkey: accounts.auction, isSigner: false, isWritable: true },
-        { pubkey: accounts.committed, isSigner: false, isWritable: true },
-        { pubkey: accounts.saleTokenMint, isSigner: false, isWritable: false },
-        { pubkey: accounts.userSaleToken, isSigner: false, isWritable: true },
-        { pubkey: accounts.userPaymentToken, isSigner: false, isWritable: true },
-        { pubkey: accounts.vaultSaleToken, isSigner: false, isWritable: true },
-        { pubkey: accounts.vaultPaymentToken, isSigner: false, isWritable: true },
-        { pubkey: accounts.tokenProgram, isSigner: false, isWritable: false },
-        { pubkey: accounts.associatedTokenProgram, isSigner: false, isWritable: false },
-        { pubkey: accounts.systemProgram, isSigner: false, isWritable: false }
-      ],
-      programId: this.programId,
-      data
-    });
+      // Serialize instruction data for this claim
+      const data = InstructionSerializer.serializeClaim({
+        binId: claim.binId,
+        saleTokenToClaim: claim.saleTokenToClaim,
+        paymentTokenToRefund: claim.paymentTokenToRefund
+      });
 
-    transaction.add(instruction);
+      // Build instruction for this claim
+      const instruction = new TransactionInstruction({
+        keys: [
+          { pubkey: accounts.user, isSigner: true, isWritable: true },
+          { pubkey: accounts.auction, isSigner: false, isWritable: true },
+          { pubkey: accounts.committed, isSigner: false, isWritable: true },
+          { pubkey: accounts.saleTokenMint, isSigner: false, isWritable: false },
+          { pubkey: accounts.userSaleToken, isSigner: false, isWritable: true },
+          { pubkey: accounts.userPaymentToken, isSigner: false, isWritable: true },
+          { pubkey: accounts.vaultSaleToken, isSigner: false, isWritable: true },
+          { pubkey: accounts.vaultPaymentToken, isSigner: false, isWritable: true },
+          { pubkey: accounts.tokenProgram, isSigner: false, isWritable: false },
+          { pubkey: accounts.associatedTokenProgram, isSigner: false, isWritable: false },
+          { pubkey: accounts.systemProgram, isSigner: false, isWritable: false }
+        ],
+        programId: this.programId,
+        data
+      });
+
+      transaction.add(instruction);
+    }
+
     return transaction;
   }
 

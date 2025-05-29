@@ -104,17 +104,6 @@ pub struct AuctionBinParams {
     pub sale_token_cap: u64,
 }
 
-/// Parameters for claiming from a specific bin
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct ClaimBinParams {
-    /// Bin ID to claim from
-    pub bin_id: u8,
-    /// Amount of sale tokens to claim from this bin
-    pub sale_token_to_claim: u64,
-    /// Amount of payment tokens to refund from this bin
-    pub payment_token_to_refund: u64,
-}
-
 /// Extension configuration parameters for auction initialization
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default)]
 pub struct AuctionExtensionParams {

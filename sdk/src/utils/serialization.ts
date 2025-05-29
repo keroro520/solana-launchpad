@@ -1,6 +1,5 @@
 import {
   ClaimData,
-  ClaimManyData,
   CommitData,
   DecreaseCommitData,
   InitAuctionData,
@@ -157,38 +156,6 @@ export class InstructionSerializer {
     const refundBuffer = Buffer.alloc(8);
     refundBuffer.writeBigUInt64LE(BigInt(data.paymentTokenToRefund.toString()), 0);
     buffers.push(refundBuffer);
-    
-    return Buffer.concat(buffers);
-  }
-
-  /**
-   * Serialize ClaimMany instruction data
-   */
-  static serializeClaimMany(data: ClaimManyData): Buffer {
-    const buffers: Buffer[] = [];
-    
-    // Add discriminator
-    buffers.push(INSTRUCTION_DISCRIMINATORS.CLAIM_MANY);
-    
-    // Serialize claims (Vec<ClaimBinParams>)
-    const claimsLengthBuffer = Buffer.alloc(4);
-    claimsLengthBuffer.writeUInt32LE(data.claims.length, 0);
-    buffers.push(claimsLengthBuffer);
-    
-    for (const claim of data.claims) {
-      // bin_id (u8)
-      buffers.push(Buffer.from([claim.binId]));
-      
-      // sale_token_to_claim (u64)
-      const saleTokenBuffer = Buffer.alloc(8);
-      saleTokenBuffer.writeBigUInt64LE(BigInt(claim.saleTokenToClaim.toString()), 0);
-      buffers.push(saleTokenBuffer);
-      
-      // payment_token_to_refund (u64)
-      const refundBuffer = Buffer.alloc(8);
-      refundBuffer.writeBigUInt64LE(BigInt(claim.paymentTokenToRefund.toString()), 0);
-      buffers.push(refundBuffer);
-    }
     
     return Buffer.concat(buffers);
   }

@@ -1,6 +1,6 @@
 import { PublicKey } from '@solana/web3.js';
 import BN from 'bn.js';
-import { AuctionBinParams, ClaimBinParams } from './auction';
+import { AuctionBinParams } from './auction';
 
 /**
  * IDL type definitions for Reset Program
@@ -62,20 +62,6 @@ export interface ClaimAccounts {
   systemProgram: PublicKey;
 }
 
-export interface ClaimManyAccounts {
-  user: PublicKey;
-  auction: PublicKey;
-  committed: PublicKey;
-  saleTokenMint: PublicKey;
-  userSaleToken: PublicKey;
-  userPaymentToken: PublicKey;
-  vaultSaleToken: PublicKey;
-  vaultPaymentToken: PublicKey;
-  tokenProgram: PublicKey;
-  associatedTokenProgram: PublicKey;
-  systemProgram: PublicKey;
-}
-
 export interface WithdrawFundsAccounts {
   authority: PublicKey;
   auction: PublicKey;
@@ -123,10 +109,6 @@ export interface ClaimData {
   paymentTokenToRefund: BN;
 }
 
-export interface ClaimManyData {
-  claims: ClaimBinParams[];
-}
-
 export interface SetPriceData {
   binId: number;
   newPrice: BN;
@@ -146,7 +128,6 @@ export const INSTRUCTION_DISCRIMINATORS = {
   COMMIT: Buffer.from([108, 145, 154, 93, 109, 145, 154, 93]),
   DECREASE_COMMIT: Buffer.from([12, 45, 78, 90, 123, 156, 189, 222]),
   CLAIM: Buffer.from([62, 198, 214, 193, 213, 159, 108, 210]),
-  CLAIM_MANY: Buffer.from([89, 123, 156, 189, 222, 255, 12, 45]),
   WITHDRAW_FUNDS: Buffer.from([145, 178, 211, 244, 21, 54, 87, 120]),
   WITHDRAW_FEES: Buffer.from([178, 211, 244, 21, 54, 87, 120, 153]),
   SET_PRICE: Buffer.from([211, 244, 21, 54, 87, 120, 153, 186]),

@@ -104,7 +104,7 @@ export interface ClaimBinParams {
 }
 
 /**
- * Parameters for claiming from multiple bins
+ * Parameters for claiming from multiple bins (SDK-level, uses multiple claim instructions)
  */
 export interface ClaimManyParams {
   auctionId: PublicKey;

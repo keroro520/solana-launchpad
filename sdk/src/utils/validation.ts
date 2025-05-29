@@ -1,7 +1,6 @@
 import { PublicKey } from '@solana/web3.js';
 import BN from 'bn.js';
 import { 
-  ClaimManyParams, 
   ClaimParams, 
   CommitParams, 
   CreateAuctionParams,
@@ -11,7 +10,7 @@ import {
 } from '../types/auction';
 import { ResetError, ResetErrorCode } from '../types/errors';
 import { ResetMath } from './math';
-import { MAX_BINS_PER_AUCTION, MAX_CLAIM_OPERATIONS, MAX_FEE_RATE } from './constants';
+import { MAX_BINS_PER_AUCTION, MAX_FEE_RATE } from './constants';
 
 /**
  * Parameter validation utilities for Reset Launchpad
@@ -178,52 +177,6 @@ export class Validation {
         'At least one of saleTokenToClaim or paymentTokenToRefund must be greater than zero'
       );
     }
-  }
-
-  /**
-   * Validate claim many parameters
-   */
-  static validateClaimManyParams(params: ClaimManyParams): void {
-    this.validatePublicKey(params.auctionId, 'auctionId');
-
-    if (!Array.isArray(params.claims) || params.claims.length === 0) {
-      throw new ResetError(
-        ResetErrorCode.INVALID_PARAMS,
-        'At least one claim operation is required'
-      );
-    }
-
-    if (params.claims.length > MAX_CLAIM_OPERATIONS) {
-      throw new ResetError(
-        ResetErrorCode.INVALID_PARAMS,
-        `Maximum ${MAX_CLAIM_OPERATIONS} claim operations allowed`
-      );
-    }
-
-    // Validate each claim
-    const binIds = new Set<number>();
-    params.claims.forEach((claim, index) => {
-      this.validateBinId(claim.binId);
-      this.validateAmount(claim.saleTokenToClaim, `claims[${index}].saleTokenToClaim`, true);
-      this.validateAmount(claim.paymentTokenToRefund, `claims[${index}].paymentTokenToRefund`, true);
-
-      // Check for duplicate bin IDs
-      if (binIds.has(claim.binId)) {
-        throw new ResetError(
-          ResetErrorCode.INVALID_PARAMS,
-          `Duplicate bin ID ${claim.binId} in claims`
-        );
-      }
-      binIds.add(claim.binId);
-
-      // At least one amount should be greater than zero
-      if (claim.saleTokenToClaim.isZero() && claim.paymentTokenToRefund.isZero()) {
-        throw new ResetError(
-          ResetErrorCode.INVALID_PARAMS,
-          `Claim ${index}: At least one of saleTokenToClaim or paymentTokenToRefund must be greater than zero`
-        );
-      }
-    });
   }
 
   /**
