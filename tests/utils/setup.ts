@@ -23,6 +23,15 @@ import {
 import { expect } from "chai";
 import BN from "bn.js";
 
+// =============================================================================
+// LEGACY INTERFACES AND FUNCTIONS
+// =============================================================================
+// Note: These interfaces and functions are deprecated and will be removed
+// in favor of SDK-based alternatives. Please use sdk-setup.ts instead.
+
+/**
+ * @deprecated Use SDKTestContext from sdk-setup.ts instead
+ */
 export interface TestContext {
   program: Program<ResetProgram>;
   provider: anchor.AnchorProvider;
@@ -34,6 +43,9 @@ export interface TestContext {
   paymentTokenMint: PublicKey;
 }
 
+/**
+ * @deprecated Use SDKAuctionContext from sdk-setup.ts instead
+ */
 export interface AuctionContext extends TestContext {
   auctionPda: PublicKey;
   auctionBump: number;
@@ -49,6 +61,9 @@ export interface AuctionContext extends TestContext {
   associated_token_program: PublicKey;
 }
 
+/**
+ * @deprecated Use SDKCommitmentContext from sdk-setup.ts instead
+ */
 export interface CommitmentContext extends AuctionContext {
   user1_committed_pda: PublicKey;
   user1_committed_bump: number;
@@ -86,6 +101,7 @@ export const TEST_CONFIG = {
 
 /**
  * Initialize the test environment
+ * @deprecated Use setupSDKTestContext from sdk-setup.ts instead
  */
 export async function setupTestContext(): Promise<TestContext> {
   // Configure the client to use the local cluster
@@ -141,6 +157,7 @@ export async function setupTestContext(): Promise<TestContext> {
 
 /**
  * Setup auction context with token accounts and vaults
+ * @deprecated Use setupSDKAuctionContext from sdk-setup.ts instead
  */
 export async function setupAuctionContext(ctx: TestContext): Promise<AuctionContext> {
   // Generate custody keypair
@@ -268,6 +285,7 @@ export async function setupAuctionContext(ctx: TestContext): Promise<AuctionCont
 
 /**
  * Initialize an auction
+ * @deprecated Use initializeAuctionWithSDK from sdk-setup.ts instead
  */
 export async function initializeAuction(ctx: AuctionContext): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
@@ -294,14 +312,14 @@ export async function initializeAuction(ctx: AuctionContext): Promise<void> {
     .accounts({
       authority: ctx.authority.publicKey,
       auction: ctx.auctionPda,
-      sale_token_mint: ctx.saleTokenMint,
-      payment_token_mint: ctx.paymentTokenMint,
-      sale_token_seller: ctx.sale_token_seller,
-      sale_token_seller_authority: ctx.authority.publicKey,
-      vault_sale_token: ctx.vault_sale_token,
-      vault_payment_token: ctx.vault_payment_token,
-      token_program: TOKEN_PROGRAM_ID,
-      system_program: SystemProgram.programId,
+      saleTokenMint: ctx.saleTokenMint,
+      paymentTokenMint: ctx.paymentTokenMint,
+      saleTokenSeller: ctx.sale_token_seller,
+      saleTokenSellerAuthority: ctx.authority.publicKey,
+      vaultSaleToken: ctx.vault_sale_token,
+      vaultPaymentToken: ctx.vault_payment_token,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
     })
     .signers([ctx.authority])
     .rpc();
@@ -309,6 +327,7 @@ export async function initializeAuction(ctx: AuctionContext): Promise<void> {
 
 /**
  * Setup commitment context with committed PDAs
+ * @deprecated Use setupSDKCommitmentContext from sdk-setup.ts instead
  */
 export async function setupCommitmentContext(ctx: AuctionContext): Promise<CommitmentContext> {
   // Find committed PDAs for users (no bin_id in new structure)
@@ -339,17 +358,26 @@ export async function setupCommitmentContext(ctx: AuctionContext): Promise<Commi
   };
 }
 
+/**
+ * @deprecated Use waitForAuctionStart from sdk-setup.ts instead
+ */
 export async function waitForAuctionStart(): Promise<void> {
   // Wait for auction to start (TEST_CONFIG.COMMIT_START_OFFSET seconds)
   await new Promise(resolve => setTimeout(resolve, (TEST_CONFIG.COMMIT_START_OFFSET + 1) * 1000));
 }
 
+/**
+ * @deprecated Use waitForAuctionEnd from sdk-setup.ts instead
+ */
 export async function waitForAuctionEnd(): Promise<void> {
   // This would wait for the full auction duration
   // For testing, we'll just wait a short time
   await new Promise(resolve => setTimeout(resolve, 2000));
 }
 
+/**
+ * @deprecated Use waitForClaimStart from sdk-setup.ts instead
+ */
 export async function waitForClaimStart(): Promise<void> {
   // Wait for claim period to start
   await new Promise(resolve => setTimeout(resolve, (TEST_CONFIG.COMMIT_START_OFFSET + TEST_CONFIG.COMMIT_DURATION + TEST_CONFIG.CLAIM_DELAY + 1) * 1000));
@@ -376,6 +404,9 @@ export async function assertTokenBalance(
   );
 }
 
+/**
+ * @deprecated Use getAuctionInfoWithSDK from sdk-setup.ts instead
+ */
 export async function getAccountData<T>(
   program: Program<ResetProgram>,
   address: PublicKey,
@@ -389,9 +420,27 @@ export function calculateClaimableAmount(
   user_committed: BN,
   auction_bin: any
 ): { saleTokens: BN; refundTokens: BN } {
-  const total_raised = new BN(auction_bin.payment_token_raised.toString());
-  const tier_cap = new BN(auction_bin.sale_token_cap.toString());
-  const price = new BN(auction_bin.sale_token_price.toString());
+  // Handle different property name formats for compatibility
+  const total_raised = new BN(
+    (auction_bin.payment_token_raised || 
+     auction_bin.paymentTokenRaised || 
+     auction_bin.totalRaised || 
+     new BN(0)).toString()
+  );
+  
+  const tier_cap = new BN(
+    (auction_bin.sale_token_cap || 
+     auction_bin.saleTokenCap || 
+     auction_bin.tierCap || 
+     new BN(0)).toString()
+  );
+  
+  const price = new BN(
+    (auction_bin.sale_token_price || 
+     auction_bin.saleTokenPrice || 
+     auction_bin.price || 
+     new BN(1_000_000)).toString()
+  );
   
   // Calculate sale tokens based on price
   const max_sale_tokens = user_committed.div(price);
@@ -423,6 +472,7 @@ export function calculateSaleTokens(paymentTokens: BN, price: BN): BN {
 
 /**
  * Helper function to commit to auction for a specific user
+ * @deprecated Use commitWithSDK from sdk-setup.ts instead
  */
 export async function commitToAuction(
   ctx: AuctionContext,
@@ -431,7 +481,7 @@ export async function commitToAuction(
   paymentTokenAmount: number
 ): Promise<void> {
   // Find user's payment token account
-  const userPaymentToken = getAssociatedTokenAddressSync(
+  const userPaymentToken = await getAssociatedTokenAddress(
     ctx.paymentTokenMint,
     user.publicKey
   );
@@ -452,11 +502,60 @@ export async function commitToAuction(
       user: user.publicKey,
       auction: ctx.auctionPda,
       committed: committedPda,
-      user_payment_token: userPaymentToken,
-      vault_payment_token: ctx.vault_payment_token,
-      token_program: TOKEN_PROGRAM_ID,
-      system_program: SystemProgram.programId,
+      userPaymentToken: userPaymentToken,
+      vaultPaymentToken: ctx.vault_payment_token,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
     })
     .signers([user])
     .rpc();
-} 
+}
+
+// =============================================================================
+// MIGRATION NOTICES
+// =============================================================================
+
+console.warn(`
+⚠️  DEPRECATION NOTICE ⚠️
+The functions in tests/utils/setup.ts are deprecated and will be removed in a future version.
+Please migrate to using SDK-based functions from tests/utils/sdk-setup.ts:
+
+Migration Guide:
+- TestContext          → SDKTestContext
+- AuctionContext       → SDKAuctionContext  
+- CommitmentContext    → SDKCommitmentContext
+- setupTestContext()   → setupSDKTestContext()
+- setupAuctionContext() → setupSDKAuctionContext()
+- initializeAuction()  → initializeAuctionWithSDK()
+- commitToAuction()    → commitWithSDK()
+
+For more details, see tests/SDK_MIGRATION_PLAN.md
+`);
+
+// =============================================================================
+// RE-EXPORTS FOR COMPATIBILITY
+// =============================================================================
+
+// Export SDK setup functions for easier transition
+export type {
+  SDKTestContext,
+  SDKAuctionContext,
+  SDKCommitmentContext
+} from './sdk-setup';
+
+export {
+  setupSDKTestContext,
+  setupSDKAuctionContext,
+  setupSDKCommitmentContext,
+  initializeAuctionWithSDK,
+  commitWithSDK,
+  claimWithSDK,
+  claimAllWithSDK,
+  decreaseCommitWithSDK,
+  getAuctionInfoWithSDK,
+  getUserCommitmentWithSDK,
+  getUserCommitmentsWithSDK,
+  getAuctionStatsWithSDK,
+  calculateClaimableAmountSDK,
+  calculateSaleTokensSDK
+} from './sdk-setup'; 

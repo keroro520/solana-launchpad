@@ -234,224 +234,6 @@ export type ResetProgram = {
       ]
     },
     {
-      "name": "claimMany",
-      "docs": [
-        "User claims from multiple bins in a single transaction"
-      ],
-      "discriminator": [
-        239,
-        76,
-        176,
-        190,
-        112,
-        53,
-        176,
-        100
-      ],
-      "accounts": [
-        {
-          "name": "user",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "auction",
-          "writable": true
-        },
-        {
-          "name": "committed",
-          "writable": true
-        },
-        {
-          "name": "saleTokenMint",
-          "docs": [
-            "Sale token mint"
-          ]
-        },
-        {
-          "name": "userSaleToken",
-          "docs": [
-            "User's sale token account (will be created if needed)"
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "user"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "saleTokenMint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
-        },
-        {
-          "name": "userPaymentToken",
-          "docs": [
-            "User's payment token account for refunds"
-          ],
-          "writable": true
-        },
-        {
-          "name": "vaultSaleToken",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  115,
-                  97,
-                  108,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "auction"
-              }
-            ]
-          }
-        },
-        {
-          "name": "vaultPaymentToken",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116,
-                  95,
-                  112,
-                  97,
-                  121,
-                  109,
-                  101,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "auction"
-              }
-            ]
-          }
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "associatedTokenProgram",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "claims",
-          "type": {
-            "vec": {
-              "defined": {
-                "name": "claimBinParams"
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "commit",
       "docs": [
         "User commits to an auction tier"
@@ -610,6 +392,49 @@ export type ResetProgram = {
         {
           "name": "paymentTokenReverted",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "emergencyControl",
+      "docs": [
+        "Emergency control for pausing/resuming auction operations"
+      ],
+      "discriminator": [
+        40,
+        126,
+        46,
+        161,
+        192,
+        12,
+        37,
+        0
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "Only auction authority can control emergency state"
+          ],
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "auction"
+          ]
+        },
+        {
+          "name": "auction",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "emergencyControlParams"
+            }
+          }
         }
       ]
     },
@@ -1047,6 +872,21 @@ export type ResetProgram = {
       ]
     }
   ],
+  "events": [
+    {
+      "name": "emergencyControlEvent",
+      "discriminator": [
+        3,
+        252,
+        56,
+        49,
+        253,
+        0,
+        21,
+        181
+      ]
+    }
+  ],
   "errors": [
     {
       "code": 12000,
@@ -1154,6 +994,11 @@ export type ResetProgram = {
       "msg": "Invalid input"
     },
     {
+      "code": 12600,
+      "name": "operationPaused",
+      "msg": "Operation is paused by emergency control"
+    },
+    {
       "code": 12500,
       "name": "systemError",
       "msg": "System error"
@@ -1238,6 +1083,17 @@ export type ResetProgram = {
             "type": {
               "defined": {
                 "name": "auctionExtensions"
+              }
+            }
+          },
+          {
+            "name": "emergencyState",
+            "docs": [
+              "Emergency control state (newly added)"
+            ],
+            "type": {
+              "defined": {
+                "name": "emergencyState"
               }
             }
           },
@@ -1404,38 +1260,6 @@ export type ResetProgram = {
       }
     },
     {
-      "name": "claimBinParams",
-      "docs": [
-        "Parameters for claiming from a specific bin"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "binId",
-            "docs": [
-              "Bin ID to claim from"
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "saleTokenToClaim",
-            "docs": [
-              "Amount of sale tokens to claim from this bin"
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "paymentTokenToRefund",
-            "docs": [
-              "Amount of payment tokens to refund from this bin"
-            ],
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "committed",
       "docs": [
         "User commitment data for all auction tiers",
@@ -1507,6 +1331,78 @@ export type ResetProgram = {
             "name": "saleTokenClaimed",
             "docs": [
               "Amount of sale tokens already claimed from this bin"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "emergencyControlEvent",
+      "docs": [
+        "Emergency control event"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "pausedOperations",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "emergencyControlParams",
+      "docs": [
+        "Emergency control parameters for instruction"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auctionId",
+            "type": "pubkey"
+          },
+          {
+            "name": "pauseAuctionCommit",
+            "type": "bool"
+          },
+          {
+            "name": "pauseAuctionClaim",
+            "type": "bool"
+          },
+          {
+            "name": "pauseAuctionWithdrawFees",
+            "type": "bool"
+          },
+          {
+            "name": "pauseAuctionWithdrawFunds",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "emergencyState",
+      "docs": [
+        "Emergency control state (embedded in Auction)"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pausedOperations",
+            "docs": [
+              "Paused operations bitmask"
             ],
             "type": "u64"
           }

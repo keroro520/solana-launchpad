@@ -37,6 +37,7 @@ const RAW_RUNTIME_STATE =
           ["@typescript-eslint/parser", "virtual:b759478dd825493ee3d74cc82830d6750fa5ba7a86b4c1e09efe98e7d67c8f8f693a4bd3d12c496ef5f03cf0de5e09a894a140bef0141bec488c1dc712370a42#npm:6.21.0"],\
           ["bn.js", "npm:5.2.2"],\
           ["chai", "npm:4.5.0"],\
+          ["decimal.js", "npm:10.5.0"],\
           ["eslint", "npm:8.57.1"],\
           ["mocha", "npm:10.8.2"],\
           ["nyc", "npm:15.1.0"],\
@@ -2099,6 +2100,15 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "../../.yarn/berry/cache/decamelize-npm-4.0.0-12410e3409-10c0.zip/node_modules/decamelize/",\
         "packageDependencies": [\
           ["decamelize", "npm:4.0.0"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["decimal.js", [\
+      ["npm:10.5.0", {\
+        "packageLocation": "../../.yarn/berry/cache/decimal.js-npm-10.5.0-f021b10ac9-10c0.zip/node_modules/decimal.js/",\
+        "packageDependencies": [\
+          ["decimal.js", "npm:10.5.0"]\
         ],\
         "linkType": "HARD"\
       }]\
@@ -4209,6 +4219,7 @@ const RAW_RUNTIME_STATE =
           ["@typescript-eslint/parser", "virtual:b759478dd825493ee3d74cc82830d6750fa5ba7a86b4c1e09efe98e7d67c8f8f693a4bd3d12c496ef5f03cf0de5e09a894a140bef0141bec488c1dc712370a42#npm:6.21.0"],\
           ["bn.js", "npm:5.2.2"],\
           ["chai", "npm:4.5.0"],\
+          ["decimal.js", "npm:10.5.0"],\
           ["eslint", "npm:8.57.1"],\
           ["mocha", "npm:10.8.2"],\
           ["nyc", "npm:15.1.0"],\
