@@ -260,7 +260,33 @@ export type ResetProgram = {
         },
         {
           "name": "committed",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  109,
+                  109,
+                  105,
+                  116,
+                  116,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              }
+            ]
+          }
         },
         {
           "name": "userPaymentToken",
@@ -335,7 +361,10 @@ export type ResetProgram = {
         {
           "name": "user",
           "writable": true,
-          "signer": true
+          "signer": true,
+          "relations": [
+            "committed"
+          ]
         },
         {
           "name": "auction",
@@ -623,12 +652,10 @@ export type ResetProgram = {
           "type": "pubkey"
         },
         {
-          "name": "extensionParams",
+          "name": "extensions",
           "type": {
-            "option": {
-              "defined": {
-                "name": "auctionExtensionParams"
-              }
+            "defined": {
+              "name": "auctionExtensions"
             }
           }
         }
@@ -677,7 +704,7 @@ export type ResetProgram = {
     {
       "name": "withdrawFees",
       "docs": [
-        "Admin withdraws collected fees from all bins (simplified - no bin_id)"
+        "Admin withdraws collected fees from all bins"
       ],
       "discriminator": [
         198,
@@ -703,7 +730,13 @@ export type ResetProgram = {
           "writable": true
         },
         {
-          "name": "vaultPaymentToken",
+          "name": "saleTokenMint",
+          "docs": [
+            "Sale token mint"
+          ]
+        },
+        {
+          "name": "vaultSaleToken",
           "writable": true,
           "pda": {
             "seeds": [
@@ -716,13 +749,10 @@ export type ResetProgram = {
                   108,
                   116,
                   95,
-                  112,
+                  115,
                   97,
-                  121,
-                  109,
-                  101,
-                  110,
-                  116
+                  108,
+                  101
                 ]
               },
               {
@@ -734,11 +764,108 @@ export type ResetProgram = {
         },
         {
           "name": "feeRecipientAccount",
-          "writable": true
+          "docs": [
+            "Fee recipient account (will be created if needed)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "saleTokenMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
         },
         {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
@@ -746,7 +873,7 @@ export type ResetProgram = {
     {
       "name": "withdrawFunds",
       "docs": [
-        "Admin withdraws funds from all auction bins (simplified - no bin_id)"
+        "Admin withdraws funds from all auction bins"
       ],
       "discriminator": [
         241,
@@ -770,6 +897,18 @@ export type ResetProgram = {
         {
           "name": "auction",
           "writable": true
+        },
+        {
+          "name": "saleTokenMint",
+          "docs": [
+            "Sale token mint"
+          ]
+        },
+        {
+          "name": "paymentTokenMint",
+          "docs": [
+            "Payment token mint"
+          ]
         },
         {
           "name": "vaultSaleToken",
@@ -829,16 +968,202 @@ export type ResetProgram = {
           }
         },
         {
-          "name": "authoritySaleToken",
-          "writable": true
+          "name": "saleTokenRecipient",
+          "docs": [
+            "Sale token recipient account (will be created if needed)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "saleTokenMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
         },
         {
-          "name": "authorityPaymentToken",
-          "writable": true
+          "name": "paymentTokenRecipient",
+          "docs": [
+            "Payment token recipient account (will be created if needed)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "paymentTokenMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
         },
         {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
@@ -903,123 +1228,103 @@ export type ResetProgram = {
   "errors": [
     {
       "code": 12000,
-      "name": "invalidTimeRange",
-      "msg": "Invalid time range"
-    },
-    {
-      "code": 12001,
-      "name": "auctionNotStarted",
-      "msg": "Auction not started"
-    },
-    {
-      "code": 12002,
-      "name": "auctionEnded",
-      "msg": "Auction has ended"
-    },
-    {
-      "code": 12003,
-      "name": "claimNotStarted",
-      "msg": "Claim period not started"
-    },
-    {
-      "code": 12100,
-      "name": "unauthorized",
-      "msg": "Unauthorized access"
-    },
-    {
-      "code": 12101,
-      "name": "invalidAuthority",
-      "msg": "Invalid authority"
-    },
-    {
-      "code": 12200,
-      "name": "mathOverflow",
-      "msg": "Mathematical overflow"
-    },
-    {
-      "code": 12201,
-      "name": "mathUnderflow",
-      "msg": "Mathematical underflow"
-    },
-    {
-      "code": 12202,
-      "name": "divisionByZero",
-      "msg": "Division by zero"
-    },
-    {
-      "code": 12203,
-      "name": "invalidCalculation",
-      "msg": "Invalid calculation"
-    },
-    {
-      "code": 12300,
-      "name": "invalidBinId",
-      "msg": "Invalid bin ID"
-    },
-    {
-      "code": 12301,
-      "name": "invalidAuctionState",
-      "msg": "Invalid auction state"
-    },
-    {
-      "code": 12302,
-      "name": "invalidCommitmentState",
-      "msg": "Invalid commitment state"
-    },
-    {
-      "code": 12400,
-      "name": "invalidAmount",
-      "msg": "Invalid amount"
-    },
-    {
-      "code": 12401,
-      "name": "invalidPrice",
-      "msg": "Invalid price"
-    },
-    {
-      "code": 12402,
-      "name": "insufficientBalance",
-      "msg": "Insufficient balance"
-    },
-    {
-      "code": 12403,
-      "name": "invalidTokenAccount",
-      "msg": "Invalid token account"
-    },
-    {
-      "code": 12404,
-      "name": "invalidPda",
-      "msg": "Invalid PDA"
-    },
-    {
-      "code": 12405,
-      "name": "commitCapExceeded",
-      "msg": "Commit cap exceeded"
-    },
-    {
-      "code": 12406,
-      "name": "exceedsBinCap",
-      "msg": "Exceeds bin cap"
-    },
-    {
-      "code": 12407,
-      "name": "invalidInput",
-      "msg": "Invalid input"
-    },
-    {
-      "code": 12600,
       "name": "operationPaused",
       "msg": "Operation is paused by emergency control"
     },
     {
-      "code": 12500,
-      "name": "systemError",
-      "msg": "System error"
+      "code": 12001,
+      "name": "onlyLaunchpadAdmin",
+      "msg": "Only LaunchpadAdmin can access this function"
     },
     {
-      "code": 12501,
-      "name": "accountInitFailed",
-      "msg": "Account initialization failed"
+      "code": 12100,
+      "name": "mathOverflow",
+      "msg": "Math overflow"
+    },
+    {
+      "code": 12101,
+      "name": "mathUnderflow",
+      "msg": "Math underflow"
+    },
+    {
+      "code": 12102,
+      "name": "divisionByZero",
+      "msg": "Division by zero"
+    },
+    {
+      "code": 12103,
+      "name": "invalidCalculation",
+      "msg": "Invalid calculation"
+    },
+    {
+      "code": 12104,
+      "name": "unauthorized",
+      "msg": "unauthorized"
+    },
+    {
+      "code": 12200,
+      "name": "invalidAuctionTimeRange",
+      "msg": "Invalid auction time range"
+    },
+    {
+      "code": 12201,
+      "name": "invalidAuctionBinsLength",
+      "msg": "Must have 1-10 auction bins"
+    },
+    {
+      "code": 12202,
+      "name": "invalidAuctionBinsPriceOrCap",
+      "msg": "Auction bin price and cap must be greater than zero"
+    },
+    {
+      "code": 12300,
+      "name": "outOfCommitmentPeriod",
+      "msg": "Out of commitment period"
+    },
+    {
+      "code": 12301,
+      "name": "invalidCommitmentAmount",
+      "msg": "Invalid commitment amount"
+    },
+    {
+      "code": 12302,
+      "name": "invalidBinId",
+      "msg": "Invalid bin ID"
+    },
+    {
+      "code": 12303,
+      "name": "commitmentBinCapExceeded",
+      "msg": "Commitment bin cap exceeded"
+    },
+    {
+      "code": 12304,
+      "name": "outOfClaimPeriod",
+      "msg": "Out of claim period"
+    },
+    {
+      "code": 12305,
+      "name": "invalidClaimAmount",
+      "msg": "Invalid claim amount"
+    },
+    {
+      "code": 12306,
+      "name": "commitCapExceeded",
+      "msg": "Commit cap exceeded"
+    },
+    {
+      "code": 12400,
+      "name": "inCommitmentPeriod",
+      "msg": "In commitment period"
+    },
+    {
+      "code": 12401,
+      "name": "doubleFundsWithdrawal",
+      "msg": "Double funds withdrawal"
+    },
+    {
+      "code": 12402,
+      "name": "noClaimFeesConfigured",
+      "msg": "No claim fees configured for this auction"
     }
   ],
   "types": [
@@ -1118,6 +1423,28 @@ export type ResetProgram = {
             "type": "u64"
           },
           {
+            "name": "unsoldSaleTokensAndEffectivePaymentTokensWithdrawn",
+            "docs": [
+              "Whether the unsold sale tokens and effective payment tokens have been",
+              "withdrawn, which is used to prevent double withdrawal by `withdraw_funds`"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "totalFeesCollected",
+            "docs": [
+              "Total fees collected from claimed sale tokens"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "totalFeesWithdrawn",
+            "docs": [
+              "Fees withdrawn already"
+            ],
+            "type": "u64"
+          },
+          {
             "name": "vaultSaleBump",
             "docs": [
               "Vault PDA bump seeds for derivation"
@@ -1192,44 +1519,6 @@ export type ResetProgram = {
           {
             "name": "saleTokenCap",
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "auctionExtensionParams",
-      "docs": [
-        "Extension configuration parameters for auction initialization"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "whitelistAuthority",
-            "docs": [
-              "Whitelist authority for access control (None = no whitelist)"
-            ],
-            "type": {
-              "option": "pubkey"
-            }
-          },
-          {
-            "name": "commitCapPerUser",
-            "docs": [
-              "Per-user commitment cap (None = no cap)"
-            ],
-            "type": {
-              "option": "u64"
-            }
-          },
-          {
-            "name": "claimFeeRate",
-            "docs": [
-              "Claim fee rate (None = no fee)"
-            ],
-            "type": {
-              "option": "u64"
-            }
           }
         ]
       }
@@ -1455,6 +1744,13 @@ export type ResetProgram = {
               "Amount of sale tokens already claimed from this bin"
             ],
             "type": "u64"
+          },
+          {
+            "name": "paymentTokenRefunded",
+            "docs": [
+              "Payment tokens already refunded from this bin"
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -1504,6 +1800,10 @@ export type ResetProgram = {
           },
           {
             "name": "pauseAuctionWithdrawFunds",
+            "type": "bool"
+          },
+          {
+            "name": "pauseAuctionUpdation",
             "type": "bool"
           }
         ]

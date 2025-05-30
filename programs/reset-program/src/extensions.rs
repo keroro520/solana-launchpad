@@ -1,93 +1,49 @@
-use crate::errors::*;
 use crate::state::*;
 use anchor_lang::prelude::*;
 
-/// Mock function for calculating claim fees
-/// TODO: Replace with actual fee calculation logic
-pub fn calc_claim_fee() -> u64 {
-    0
+/// Extension configuration data (embedded in Auction)
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default)]
+pub struct AuctionExtensions {
+    /// Whitelist authority for access control
+    pub whitelist_authority: Option<Pubkey>,
+    /// Per-user commitment cap (if enabled)
+    pub commit_cap_per_user: Option<u64>,
+    /// Claim fee rate (if enabled)
+    pub claim_fee_rate: Option<u64>,
 }
 
-/// Extension validation functions
-pub struct ExtensionValidator;
+impl AuctionExtensions {
+    pub fn is_whitelist_enabled(&self) -> bool {
+        self.whitelist_authority.is_some()
+    }
 
-impl ExtensionValidator {
-    /// Check if user is whitelisted or has custody signature
-    pub fn validate_whitelist(
-        auction: &Auction,
-        user: &Pubkey,
-        custody: &Pubkey,
-        // TODO: Add signature validation parameters when implementing off-chain signatures
+    pub fn check_whitelist(&self, user: &Pubkey) -> Result<()> {
+        if let Some(whitelist_authority) = self.whitelist_authority {
+            // TODO: implement whitelist check
+        }
+        Ok(())
+    }
+
+    pub fn check_commit_cap_exceeded(
+        &self,
+        committed: &Committed,
+        additional_payment: u64,
     ) -> Result<()> {
-        // If no whitelist authority, allow all users
-        if let Some(_whitelist_authority) = auction.extensions.whitelist_authority {
-            // Check if user is custody (custody bypasses whitelist)
-            if user == custody {
-                return Ok(());
-            }
-
-            // TODO: Implement off-chain signature validation
-            // For now, we'll allow all users (placeholder implementation)
-            // In production, this should validate the WhitelistAuthorizedAccount signature
-            msg!(
-                "Whitelist validation: User {} (placeholder - allowing all users)",
-                user
+        if let Some(commit_cap) = self.commit_cap_per_user {
+            let total_payment_committed = committed.total_payment_committed();
+            require!(
+                total_payment_committed + additional_payment <= commit_cap,
+                crate::errors::ResetError::CommitCapExceeded
             );
-            return Ok(());
         }
-
-        // No whitelist restriction
         Ok(())
     }
 
-    /// Check if user's total commitment across all bins is within the cap or has custody signature
-    pub fn validate_commit_cap(
-        auction: &Auction,
-        user: &Pubkey,
-        custody: &Pubkey,
-        committed: Option<&Committed>,
-        new_commitment: u64,
-    ) -> Result<()> {
-        // If no commit cap, allow unlimited commitment
-        if let Some(cap) = auction.extensions.commit_cap_per_user {
-            // Check if user is custody (custody bypasses cap)
-            if user == custody {
-                return Ok(());
-            }
-
-            // Calculate current total commitment across all bins
-            let current_total = committed
-                .map(|c| c.total_payment_committed())
-                .unwrap_or(0);
-
-            // Check if total commitment would exceed cap
-            let total_commitment = current_total
-                .checked_add(new_commitment)
-                .ok_or(ResetErrorCode::MathOverflow)?;
-
-            if total_commitment > cap {
-                msg!(
-                    "Commit cap exceeded: user {} attempting {} total, cap is {}",
-                    user,
-                    total_commitment,
-                    cap
-                );
-                return Err(ResetErrorCode::CommitCapExceeded.into());
-            }
+    pub fn calculate_claim_fee(&self, sale_token_claimed: u64) -> u64 {
+        if let Some(fee_rate) = self.claim_fee_rate {
+            (sale_token_claimed as u128 * fee_rate as u128 / 10000) as u64
+        } else {
+            0
         }
-
-        // No cap restriction or within limits
-        Ok(())
-    }
-
-    /// Calculate claim fee based on extension configuration
-    pub fn calculate_claim_fee(auction: &Auction, _claim_amount: u64) -> Result<u64> {
-        if let Some(_fee_rate) = auction.extensions.claim_fee_rate {
-            // Use mock function for now
-            return Ok(calc_claim_fee());
-        }
-
-        // No fee
-        Ok(0)
     }
 }

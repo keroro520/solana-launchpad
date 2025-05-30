@@ -74,7 +74,7 @@ END
 | `decrease_commit` | 用户减少认购，用户指定目标梯度和减少认购的数额。合约更新 Committed 账户中对应梯度的认购信息，并将相应的 `$bbSol` 从 VaultPaymentTokenAccount 转出 UserPaymentTokenAccount |
 | `claim`  | 用户 **灵活认领指定梯度的指定数量的`$DAI`和`$bbSol`**。支持部分认领，用户可以指定要认领的梯度、sale token 数量和要退回的 payment token 数量 |
 | `withdraw_funds` | （管理员）提取此次活动所有梯度募集到的 `$bbSol` 和未出售的 `$DAI` |
-| `withdraw_fees` | （管理员）提取此次活动收集到的 claim fee `$Sol` |
+| `withdraw_fees` | （管理员）提取此次活动收集到的手续费 |
 | `set_price` | （管理员）修改某个梯度的认购价格 |
 | `get_launchpad_admin` | 查询硬编码的 LaunchpadAdmin 公钥 |
 
@@ -125,6 +125,10 @@ struct Auction {
         
         // statistics
         total_participants: u64,  // 参与此次募资活动的总用户数目
+        // withdrawals & fees
+        unsold_sale_tokens_and_effective_payment_tokens_withdrawn: bool, // 防止重复提款
+        total_fees_collected: u64,  // 累计收取的手续费
+        total_fees_withdrawn: u64,  // 已提取的手续费
         
         bump: u8,
     }
@@ -140,7 +144,7 @@ struct Auction {
 struct AuctionExtensions {
     whitelist_authority: Option<Pubkey>,        // 白名单授权账户
     commit_cap_per_user: Option<u64>,          // 用户认购限额
-    claim_fee_rate: Option<u16>,               // 认领手续费率（基点，如100=1%）
+    claim_fee_rate: Option<u64>,               // 认领手续费率（基点，如100=1%）
 }
 ```
 
@@ -160,6 +164,7 @@ pub mod emergency_flags {
     pub const PAUSE_AUCTION_CLAIM: u64         = 1 << 1;  // 0x02 - 暂停认领操作  
     pub const PAUSE_AUCTION_WITHDRAW_FEES: u64 = 1 << 2;  // 0x04 - 暂停提取手续费
     pub const PAUSE_AUCTION_WITHDRAW_FUNDS: u64 = 1 << 3; // 0x08 - 暂停提取资金
+    pub const PAUSE_AUCTION_UPDATION: u64 = 1 << 4; // 0x10 - 暂停价格修改等更新操作
 }
 ```
 
@@ -196,6 +201,8 @@ struct CommittedBin {
     payment_token_committed: u64,
     // 用户在该梯度中已认领的数额
     sale_token_claimed: u64,
+    // 用户在该梯度中已退回的收款代币
+    payment_token_refunded: u64,
 }
 ```
 
@@ -231,8 +238,8 @@ pub fn init_auction(Context{
 }, commit_start_time, commit_end_time, claim_start_time, bins, custody, extension_params) {
     // CHECK: authority 必须等于硬编码的 LaunchpadAdmin
     // CHECK: Context validation
-    // CHECK: commit_start_time < commit_end_time < claim_start_time
-    // CHECK: bins.len() > 0 && bins.len() <= 100
+    // CHECK: commit_start_time <= current_time <= commit_end_time <= claim_start_time
+    // CHECK: bins.len() >= 1 && bins.len() <= 10
     // CHECK: all bins have valid price and cap
     // CHECK: sale_token_mint != payment_token_mint
     // CHECK: sale_token_seller ownership and mint
@@ -259,18 +266,15 @@ pub fn init_auction(Context{
 /// 紧急风控指令，暂停/恢复拍卖操作
 pub fn emergency_control(Context{
     authority: Signer,                      // 必须是拍卖的 authority（硬编码的 LaunchpadAdmin）
-    auction: Auction,                       // 目标拍卖账户，address = params.auction_id
+    auction: Auction,                       // 目标拍卖账户
 }, params: EmergencyControlParams) {
-    // CHECK: authority 必须等于 auction.authority（权限验证）
-    // CHECK: Context validation
-    // CHECK: params.auction_id 匹配 auction 账户地址
-
     // CALC: 根据参数构建新的暂停操作位标记
     let mut new_paused_operations = 0u64;
     if params.pause_auction_commit { new_paused_operations |= PAUSE_AUCTION_COMMIT; }
     if params.pause_auction_claim { new_paused_operations |= PAUSE_AUCTION_CLAIM; }
     if params.pause_auction_withdraw_fees { new_paused_operations |= PAUSE_AUCTION_WITHDRAW_FEES; }
     if params.pause_auction_withdraw_funds { new_paused_operations |= PAUSE_AUCTION_WITHDRAW_FUNDS; }
+    if params.pause_auction_updation { new_paused_operations |= PAUSE_AUCTION_UPDATION; }
     
     // CPI: 更新 auction.emergency_state.paused_operations = new_paused_operations
     // EVENT: 发出 EmergencyControlEvent 事件，记录操作详情
@@ -280,11 +284,11 @@ pub fn emergency_control(Context{
 // 参数结构
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 struct EmergencyControlParams {
-    auction_id: Pubkey,                     // 目标拍卖账户 ID
     pause_auction_commit: bool,             // 是否暂停认购操作
     pause_auction_claim: bool,              // 是否暂停认领操作
     pause_auction_withdraw_fees: bool,      // 是否暂停提取手续费操作
     pause_auction_withdraw_funds: bool,     // 是否暂停提取资金操作
+    pause_auction_updation: bool,           // 是否暂停价格修改等更新操作
 }
 ```
 
@@ -302,7 +306,7 @@ pub fn commit(Context{
     system_program: SystemProgram,
 }, bin_id, payment_token_committed) {
     // CHECK: Context validation
-    // CHECK: auction.commit_start_time <= CURRENT <= auction.commit_end_time
+    // CHECK: commit_start_time <= current_time <= commit_end_time <= claim_start_time
     // CHECK: bin_id valid in auction
     // CHECK: payment_token_committed > 0
     // CHECK: user_payment_token ownership and mint
@@ -337,7 +341,7 @@ pub fn decrease_commit(Context{
     token_program: TokenProgram,
 }, bin_id, payment_token_reverted) {
     // CHECK: Context validation
-    // CHECK: auction.commit_start_time <= CURRENT <= auction.commit_end_time
+    // CHECK: commit_start_time <= current_time <= commit_end_time <= claim_start_time
     // CHECK: committed.user == user.key() (ownership validation)
     // CHECK: payment_token_reverted > 0
     // CHECK: bin_id valid in auction
@@ -373,7 +377,7 @@ pub fn claim(ctx: Context{
     system_program: SystemProgram,
 }, bin_id, sale_token_to_claim, payment_token_to_refund) {
     // CHECK: Context validation
-    // CHECK: auction.claim_start_time <= CURRENT
+    // CHECK: claim_start_time <= CURRENT
     // CHECK: committed.user == user.key() (ownership validation)
     // CHECK: bin_id valid in auction
     // CHECK: sale_token_to_claim > 0 || payment_token_to_refund > 0
@@ -408,24 +412,31 @@ pub fn claim(ctx: Context{
 pub fn withdraw_funds(ctx: Context{
     authority: Signer,
     auction: Auction,
+    sale_token_mint: Mint,
+    payment_token_mint: Mint,
     vault_sale_token: TokenAccount,
     vault_payment_token: TokenAccount,
-    authority_sale_token: TokenAccount,
-    authority_payment_token: TokenAccount,
+    sale_token_recipient: TokenAccount,     // 自动创建（如果不存在）
+    payment_token_recipient: TokenAccount,  // 自动创建（如果不存在）
     token_program: TokenProgram,
+    associated_token_program: AssociatedTokenProgram,
+    system_program: SystemProgram,
 }) {
     // CHECK: Context validation
-    // CHECK: auction.claim_start_time <= CURRENT
+    // CHECK: current_time > auction.commit_end_time
     // CHECK: auction.authority == authority.key()
+    // CHECK: 防止重复提款
+    // CHECK: !auction.unsold_sale_tokens_and_effective_payment_tokens_withdrawn
 
     // EMERGENCY: 检查提取资金操作是否被暂停
     check_emergency_state(auction, PAUSE_AUCTION_WITHDRAW_FUNDS);
 
     // CALC: 遍历所有梯度，计算总的 payment_tokens_to_withdraw 和 sale_tokens_to_withdraw
-    // NOTE: 可以多次提取，不再有单次提取限制
+    // NOTE: 仅允许调用一次；通过 unsold_sale_tokens_and_effective_payment_tokens_withdrawn 标志防止重复提款
 
     // CPI: transfer total payment_tokens_to_withdraw from vault to authority (if > 0)
     // CPI: transfer total sale_tokens_to_withdraw from vault to authority (if > 0)
+    // CPI: 设置 auction.unsold_sale_tokens_and_effective_payment_tokens_withdrawn = true
     // MSG "Withdrew {} payment tokens and {} unsold sale tokens from all bins"
 }
 ```
@@ -437,26 +448,25 @@ pub fn withdraw_funds(ctx: Context{
 pub fn withdraw_fees(ctx: Context{
     authority: Signer,
     auction: Auction,
-    vault_payment_token: TokenAccount,
-    fee_recipient_account: TokenAccount,
+    sale_token_mint: Mint,
+    vault_sale_token: TokenAccount,
+    fee_recipient_account: TokenAccount,     // 自动创建（如果不存在）
     token_program: TokenProgram,
+    associated_token_program: AssociatedTokenProgram,
+    system_program: SystemProgram,
 }) {
     // CHECK: Context validation
-    // CHECK: auction.claim_start_time <= CURRENT
+    // CHECK: current_time > auction.commit_end_time
     // CHECK: auction.authority == authority.key()
 
     // EMERGENCY: 检查提取手续费操作是否被暂停
     check_emergency_state(auction, PAUSE_AUCTION_WITHDRAW_FEES);
 
-    // CALC: 遍历所有梯度，计算总的手续费
-    // CPI: transfer total fees from vault_payment_token to fee_recipient_account
-    // MSG "Withdrew {} fees to recipient {} from all bins"
-    // CHECK: auction.claim_start_time <= CURRENT
-    // CHECK: auction.authority == authority.key()
-    // CHECK: auction account SOL balance > 0
-
-    // CPI: transfer all SOL from auction account to fee_recipient
-    // MSG "Withdrew {} SOL fees to recipient {} by authority {}"
+    // CALC: 待提取手续费 = auction.total_fees_collected - auction.total_fees_withdrawn
+    // CPI: 从 vault_sale_token 转账待提取手续费（sale tokens）到 fee_recipient_account
+    // NOTE: fee_recipient_account 如果不存在会自动创建（使用 init_if_needed）
+    // CPI: 更新 auction.total_fees_withdrawn
+    // MSG "Withdrew {} sale-token fees to recipient {}"
 }
 ```
 
@@ -470,11 +480,11 @@ pub fn set_price(ctx: Context{
 }, bin_id, new_price) {
     // CHECK: Context validation
     // CHECK: auction.authority == authority.key()
-    // CHECK: CURRENT < auction.commit_start_time (only before commit period)
     // CHECK: new_price > 0
     // CHECK: bin_id valid in auction
 
-    // TODO 验证改价后的 vault 是否有足够的代币
+    // EMERGENCY: 检查价格修改操作是否被暂停
+    check_emergency_state(auction, PAUSE_AUCTION_UPDATION);
 
     // CPI: auction.bins[bin_id].sale_token_price = new_price
     // MSG "Updated price for bin {} from {} to {} by authority {}"
@@ -521,9 +531,8 @@ if let Some(cap) = auction.extensions.commit_cap_per_user {
 
 ### Claim Fee Rate
 
-若配置，则在用户 claim 时，收取一定数额的手续费 `$Sol`。
-
-尚未定计算公式。
+若配置，则在用户 claim 时，按 `claim_fee_rate` 基点比例收取费用，费用以 **Sale Token** 计价并累计到 `auction.total_fees_collected`。
+费用计算公式： `fee = sale_token_to_claim * claim_fee_rate / 10_000`。
 
 ## 分配算法
 

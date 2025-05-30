@@ -1,3 +1,4 @@
+use crate::extensions::AuctionExtensions;
 use anchor_lang::prelude::*;
 
 /// PDA seed constants for predictable derivation
@@ -37,6 +38,15 @@ pub struct Auction {
     /// Total number of unique participants in this auction
     pub total_participants: u64,
 
+    /// Whether the unsold sale tokens and effective payment tokens have been
+    /// withdrawn, which is used to prevent double withdrawal by `withdraw_funds`
+    pub unsold_sale_tokens_and_effective_payment_tokens_withdrawn: bool,
+
+    /// Total fees collected from claimed sale tokens
+    pub total_fees_collected: u64,
+    /// Fees withdrawn already
+    pub total_fees_withdrawn: u64,
+
     /// Vault PDA bump seeds for derivation
     pub vault_sale_bump: u8,
     pub vault_payment_bump: u8,
@@ -45,7 +55,7 @@ pub struct Auction {
 }
 
 impl Auction {
-    pub const BASE_SPACE: usize = 8 + 32 * 4 + 8 * 3 + 4 + (33 + 9 + 9) + 8 + 8 + 1 + 1 + 1; // Added emergency_state (8 bytes)
+    pub const BASE_SPACE: usize = 8 + 32 * 4 + 8 * 3 + 4 + (33 + 9 + 9) + 8 + 8 + 1 + 1 + 1;
     pub const SPACE_PER_BIN: usize = 8 + 8 + 8 + 8 + 1; // 33 bytes per bin
 
     /// Calculate space needed for auction with given number of bins
@@ -53,7 +63,7 @@ impl Auction {
         Self::BASE_SPACE + (bin_count * Self::SPACE_PER_BIN)
     }
 
-    /// Find the PDA address for an auction (simplified - no launchpad dependency)
+    /// Find the PDA address for an auction
     pub fn find_program_address(sale_token: &Pubkey) -> (Pubkey, u8) {
         Pubkey::find_program_address(&[AUCTION_SEED, sale_token.as_ref()], &crate::ID)
     }
@@ -72,27 +82,24 @@ impl Auction {
     pub fn get_bin(&self, bin_id: u8) -> Result<&AuctionBin> {
         self.bins
             .get(bin_id as usize)
-            .ok_or(crate::errors::ResetErrorCode::InvalidBinId.into())
+            .ok_or(crate::errors::ResetError::InvalidBinId.into())
     }
 
     /// Get a mutable reference to a specific bin by ID
     pub fn get_bin_mut(&mut self, bin_id: u8) -> Result<&mut AuctionBin> {
         self.bins
             .get_mut(bin_id as usize)
-            .ok_or(crate::errors::ResetErrorCode::InvalidBinId.into())
-    }
-
-    /// Get total number of bins
-    pub fn total_bins(&self) -> u8 {
-        self.bins.len() as u8
+            .ok_or(crate::errors::ResetError::InvalidBinId.into())
     }
 }
 
 /// Check if an operation is paused by emergency control
 pub fn check_emergency_state(auction: &Auction, operation_flag: u64) -> Result<()> {
-    if auction.emergency_state.is_paused(operation_flag) {
-        return Err(crate::errors::ResetErrorCode::OperationPaused.into());
-    }
+    require!(
+        !auction.emergency_state.is_paused(operation_flag),
+        crate::errors::ResetError::OperationPaused
+    );
+
     Ok(())
 }
 
@@ -116,28 +123,6 @@ pub struct AuctionBinParams {
     pub sale_token_cap: u64,
 }
 
-/// Extension configuration parameters for auction initialization
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default)]
-pub struct AuctionExtensionParams {
-    /// Whitelist authority for access control (None = no whitelist)
-    pub whitelist_authority: Option<Pubkey>,
-    /// Per-user commitment cap (None = no cap)
-    pub commit_cap_per_user: Option<u64>,
-    /// Claim fee rate (None = no fee)
-    pub claim_fee_rate: Option<u64>,
-}
-
-/// Extension configuration data (embedded in Auction)
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default)]
-pub struct AuctionExtensions {
-    /// Whitelist authority for access control
-    pub whitelist_authority: Option<Pubkey>,
-    /// Per-user commitment cap (if enabled)
-    pub commit_cap_per_user: Option<u64>,
-    /// Claim fee rate (if enabled)
-    pub claim_fee_rate: Option<u64>,
-}
-
 /// Individual bin commitment data within a user's commitment
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct CommittedBin {
@@ -147,6 +132,8 @@ pub struct CommittedBin {
     pub payment_token_committed: u64,
     /// Amount of sale tokens already claimed from this bin
     pub sale_token_claimed: u64,
+    /// Payment tokens already refunded from this bin
+    pub payment_token_refunded: u64,
 }
 
 /// User commitment data for all auction bins
@@ -196,25 +183,6 @@ impl Committed {
             .iter()
             .map(|bin| bin.payment_token_committed)
             .sum()
-    }
-
-    /// Add a new bin commitment or update existing one
-    pub fn add_or_update_bin(&mut self, bin_id: u8, additional_payment: u64) -> Result<()> {
-        if let Some(existing_bin) = self.find_bin_mut(bin_id) {
-            // Update existing bin
-            existing_bin.payment_token_committed = existing_bin
-                .payment_token_committed
-                .checked_add(additional_payment)
-                .ok_or(crate::errors::ResetErrorCode::MathOverflow)?;
-        } else {
-            // Add new bin
-            self.bins.push(CommittedBin {
-                bin_id,
-                payment_token_committed: additional_payment,
-                sale_token_claimed: 0,
-            });
-        }
-        Ok(())
     }
 }
 
@@ -284,6 +252,7 @@ impl EmergencyState {
     pub const PAUSE_AUCTION_CLAIM: u64 = 1 << 1; // 0x02
     pub const PAUSE_AUCTION_WITHDRAW_FEES: u64 = 1 << 2; // 0x04
     pub const PAUSE_AUCTION_WITHDRAW_FUNDS: u64 = 1 << 3; // 0x08
+    pub const PAUSE_AUCTION_UPDATION: u64 = 1 << 4; // 0x10
 
     pub fn is_paused(&self, operation_flag: u64) -> bool {
         self.paused_operations & operation_flag != 0
@@ -301,4 +270,5 @@ pub struct EmergencyControlParams {
     pub pause_auction_claim: bool,
     pub pause_auction_withdraw_fees: bool,
     pub pause_auction_withdraw_funds: bool,
+    pub pause_auction_updation: bool,
 }

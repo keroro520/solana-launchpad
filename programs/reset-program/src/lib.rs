@@ -27,7 +27,7 @@ pub mod reset_program {
         claim_start_time: i64,
         bins: Vec<AuctionBinParams>,
         custody: Pubkey,
-        extension_params: Option<AuctionExtensionParams>,
+        extensions: AuctionExtensions,
     ) -> Result<()> {
         instructions::init_auction(
             ctx,
@@ -36,7 +36,7 @@ pub mod reset_program {
             claim_start_time,
             bins,
             custody,
-            extension_params,
+            extensions,
         )
     }
 
@@ -72,12 +72,12 @@ pub mod reset_program {
         instructions::claim(ctx, bin_id, sale_token_to_claim, payment_token_to_refund)
     }
 
-    /// Admin withdraws funds from all auction bins (simplified - no bin_id)
+    /// Admin withdraws funds from all auction bins
     pub fn withdraw_funds(ctx: Context<WithdrawFunds>) -> Result<()> {
         instructions::withdraw_funds(ctx)
     }
 
-    /// Admin withdraws collected fees from all bins (simplified - no bin_id)
+    /// Admin withdraws collected fees from all bins
     pub fn withdraw_fees(ctx: Context<WithdrawFees>) -> Result<()> {
         instructions::withdraw_fees(ctx)
     }
