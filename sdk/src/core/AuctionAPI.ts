@@ -1,249 +1,117 @@
-import { PublicKey } from '@solana/web3.js';
-import { 
-  AuctionInfo, 
-  CommittedInfo
-} from '../types/auction';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { Program } from '@coral-xyz/anchor';
+import BN from 'bn.js';
+import { AuctionAccountData, CommittedAccountData, CommittedBinData, UserCommitmentBinInfo, AuctionStats } from '../types/auction';
 import { ResetError, ResetErrorCode } from '../types/errors';
 import { Validation } from '../utils/validation';
-import { EventParser, ParsedCommittedAccountClosedEvent } from '../utils/events';
+import { EventParser } from '../utils/events';
+import { EventEmitter } from './EventEmitter';
+import { CommittedAccountLoadedEventData } from '../types/events';
 
-// Forward declaration to avoid circular dependency
-interface ResetSDK {
-  getConnection(): any;
-  getProgramId(): PublicKey;
-}
+// Import the IDL type
+import { ResetProgram } from '../idl/reset_program';
+import { ResetPDA } from '../utils/pda';
 
 /**
- * Auction API - handles auction data fetching and querying
+ * AuctionAPI - handles fetching and deserializing auction-related on-chain data.
  */
 export class AuctionAPI {
-  private sdk: ResetSDK;
-  private eventParser: EventParser;
+  private program: Program<ResetProgram>;
+  private eventEmitter?: EventEmitter; // Optional: for emitting data load events
+  private eventParser: EventParser; // For parsing specific on-chain events if necessary
 
-  constructor(sdk: ResetSDK) {
-    this.sdk = sdk;
-    this.eventParser = new EventParser(this.sdk.getConnection(), this.sdk.getProgramId());
+  constructor(program: Program<ResetProgram>, eventEmitter?: EventEmitter) {
+    this.program = program;
+    this.eventEmitter = eventEmitter;
+    this.eventParser = new EventParser(this.program.provider.connection, this.program.programId);
   }
 
   /**
-   * Get auction information
+   * Fetches and deserializes the Auction account data.
    */
-  async getAuction(auctionId: PublicKey): Promise<AuctionInfo> {
+  async getAuctionData(auctionId: PublicKey): Promise<AuctionAccountData | null> {
     try {
-      const connection = this.sdk.getConnection();
-      const auctionAccount = await connection.getAccountInfo(auctionId);
-      
+      const auctionAccount = await this.program.account.auction.fetchNullable(auctionId);
       if (!auctionAccount) {
-        throw new ResetError(
-          ResetErrorCode.ACCOUNT_NOT_FOUND,
-          'Auction account not found'
-        );
+        return null;
       }
-
-      // In a real implementation, this would deserialize the account data
-      // For now, return mock data
-      const BN = require('bn.js');
-      
-      return {
-        authority: new PublicKey('11111111111111111111111111111111'),
-        saleToken: new PublicKey('11111111111111111111111111111111'),
-        paymentToken: new PublicKey('So11111111111111111111111111111111111111112'),
-        custody: new PublicKey('11111111111111111111111111111111'),
-        commitStartTime: new BN(Math.floor(Date.now() / 1000)),
-        commitEndTime: new BN(Math.floor(Date.now() / 1000) + 3600),
-        claimStartTime: new BN(Math.floor(Date.now() / 1000) + 3600),
-        bins: [
-          {
-            saleTokenPrice: new BN('1000000'),
-            saleTokenCap: new BN('1000000000'),
-            saleTokenClaimed: new BN('0'),
-            paymentTokenRaised: new BN('0'),
-            isActive: true
-          }
-        ],
-        extensions: {
-          commitCapPerUser: new BN('10000000000'),
-          claimFeeRate: 250
-        },
-        totalParticipants: new BN('0'),
-        vaultSaleBump: 255,
-        vaultPaymentBump: 254,
-        bump: 253
-      };
-
+      // The fetched account is already deserialized by Anchor according to the IDL types.
+      // We just need to cast it to our SDK's specific type if there are minor differences
+      // or if we want to ensure it matches the exact SDK interface.
+      // For now, assuming ResetProgram['accounts']['auction'] matches AuctionAccountData closely.
+      return auctionAccount as unknown as AuctionAccountData; 
     } catch (error) {
-      throw ResetError.fromError(error, ResetErrorCode.ACCOUNT_NOT_FOUND);
+      throw ResetError.fromError(error, ResetErrorCode.AUCTION_LOAD_FAILED, `Failed to fetch auction data for ${auctionId.toBase58()}`);
     }
   }
 
   /**
-   * Get user commitment information for a specific bin
-   * @param auctionId - The auction public key
-   * @param user - The user public key
-   * @param binId - The bin ID to get commitment for
-   * @returns CommittedInfo for the specific bin or null if not found
+   * Fetches and deserializes the Committed account data for a given user and auction.
    */
-  async getUserCommitment(
+  async getCommittedData(auctionId: PublicKey, user: PublicKey): Promise<CommittedAccountData | null> {
+    try {
+      const [committedPda] = ResetPDA.findCommittedAddress(auctionId, user, this.program.programId);
+      const committedAccount = await this.program.account.committed.fetchNullable(committedPda);
+      
+      if (!committedAccount) {
+        // Optionally, try to find account closure event for historical data if relevant
+        // For now, just return null if account not found active.
+        return null;
+      }
+      
+      const data = committedAccount as unknown as CommittedAccountData;
+      this.eventEmitter?.emit('committedAccount:loaded', {
+        auctionId: auctionId.toBase58(),
+        userId: user.toBase58(),
+        data,
+        timestamp: Date.now(),
+      } as CommittedAccountLoadedEventData);
+      return data;
+
+    } catch (error) {
+      throw ResetError.fromError(error, ResetErrorCode.ACCOUNT_NOT_FOUND, `Failed to fetch committed account for user ${user.toBase58()} in auction ${auctionId.toBase58()}`);
+    }
+  }
+
+  /**
+   * Get a user's commitment information for a specific bin within an auction.
+   */
+  async getUserCommitmentForBin(
     auctionId: PublicKey,
     user: PublicKey,
     binId: number
-  ): Promise<CommittedInfo | null> {
-    try {
-      Validation.validateBinId(binId);
-      
-      const connection = this.sdk.getConnection();
-      
-      // Calculate committed PDA (new architecture: no binId in PDA)
-      const { ResetPDA } = require('../utils/pda');
-      const [committedPda] = ResetPDA.findCommittedAddress(
-        auctionId,
-        user,
-        this.sdk.getProgramId()
-      );
-
-      console.log(`🔍 Checking commitment for user: ${user.toString()}`);
-      console.log(`📍 Committed PDA: ${committedPda.toString()}`);
-      console.log(`🎯 Looking for bin: ${binId}`);
-
-      const committedAccount = await connection.getAccountInfo(committedPda);
-      
-      if (!committedAccount) {
-        console.log('⚠️  Committed account not found - checking for account closure event...');
-        
-        // Try to find the account closure event
-        const closureEvent = await this.eventParser.findCommittedAccountClosedEvent(committedPda);
-        
-        if (closureEvent) {
-          console.log('✅ Found account closure event!');
-          EventParser.printCommittedAccountClosedEvent(closureEvent);
-          
-          // Extract commitment info for the requested bin from the closure event
-          const binCommitment = closureEvent.committedData.bins.find(bin => bin.binId === binId);
-          
-          if (binCommitment) {
-            console.log(`📋 Returning commitment data for bin ${binId} from closure event`);
-            return {
-              binId: binCommitment.binId,
-              paymentTokenCommitted: binCommitment.paymentTokenCommitted,
-              saleTokenClaimed: binCommitment.saleTokenClaimed
-            };
-          } else {
-            console.log(`❌ No commitment found for bin ${binId} in closure event`);
-            return null;
-          }
-        } else {
-          console.log('❌ No account closure event found - user never committed to this auction');
-          return null; // No commitment found
-        }
-      }
-
-      // Account exists - parse it normally
-      console.log('✅ Committed account found - parsing account data...');
-
-      // In a real implementation, this would deserialize the account data
-      // and find the specific bin commitment
-      // For now, return mock data
-      const BN = require('bn.js');
-      
-      // 如果账户存在，返回 mock 数据
-      if (committedAccount) {
-        return {
-          binId,
-          paymentTokenCommitted: new BN('1000000'),
-          saleTokenClaimed: new BN('0')
-        };
-      }
-
-      // 如果账户不存在，返回 null
+  ): Promise<UserCommitmentBinInfo | null> {
+    Validation.validateBinId(binId);
+    const committedAccountData = await this.getCommittedData(auctionId, user);
+    if (!committedAccountData) {
       return null;
-
-    } catch (error) {
-      console.error('Error in getUserCommitment:', error);
-      throw ResetError.fromError(error, ResetErrorCode.ACCOUNT_NOT_FOUND);
     }
+    const binData = committedAccountData.bins.find(b => b.binId === binId);
+    return binData ? { ...binData } : null; // Return a copy
   }
 
   /**
-   * Get all user commitments for an auction
-   * @param auctionId - The auction public key
-   * @param user - The user public key
-   * @returns Array of CommittedInfo for all bins the user committed to
+   * Get all of a user's commitment bin information for an auction.
    */
-  async getUserCommitments(
+  async getAllUserCommitmentsForAuction(
     auctionId: PublicKey,
     user: PublicKey
-  ): Promise<CommittedInfo[]> {
-    try {
-      const connection = this.sdk.getConnection();
-      
-      // Calculate committed PDA (new architecture: no binId in PDA)
-      const { ResetPDA } = require('../utils/pda');
-      const [committedPda] = ResetPDA.findCommittedAddress(
-        auctionId,
-        user,
-        this.sdk.getProgramId()
-      );
-
-      console.log(`🔍 Getting all commitments for user: ${user.toString()}`);
-      console.log(`📍 Committed PDA: ${committedPda.toString()}`);
-
-      const committedAccount = await connection.getAccountInfo(committedPda);
-      
-      if (!committedAccount) {
-        console.log('⚠️  Committed account not found - checking for account closure event...');
-        
-        // Try to find the account closure event
-        const closureEvent = await this.eventParser.findCommittedAccountClosedEvent(committedPda);
-        
-        if (closureEvent) {
-          console.log('✅ Found account closure event!');
-          EventParser.printCommittedAccountClosedEvent(closureEvent);
-          
-          // Return all bin commitments from the closure event
-          return closureEvent.committedData.bins.map(bin => ({
-            binId: bin.binId,
-            paymentTokenCommitted: bin.paymentTokenCommitted,
-            saleTokenClaimed: bin.saleTokenClaimed
-          }));
-        } else {
-          console.log('❌ No account closure event found - user never committed to this auction');
-          return [];
-        }
-      }
-
-      // Account exists - parse it normally
-      console.log('✅ Committed account found - parsing all bin commitments...');
-
-      // In a real implementation, this would deserialize the account data
-      // and return all bin commitments
-      // For now, return mock data
-      const BN = require('bn.js');
-      
-      return [
-        {
-          binId: 0,
-          paymentTokenCommitted: new BN('1000000'),
-          saleTokenClaimed: new BN('500000')
-        },
-        {
-          binId: 1,
-          paymentTokenCommitted: new BN('2000000'),
-          saleTokenClaimed: new BN('1000000')
-        }
-      ];
-
-    } catch (error) {
-      console.error('Error in getUserCommitments:', error);
-      throw ResetError.fromError(error, ResetErrorCode.ACCOUNT_NOT_FOUND);
+  ): Promise<UserCommitmentBinInfo[]> {
+    const committedAccountData = await this.getCommittedData(auctionId, user);
+    if (!committedAccountData) {
+      return [];
     }
+    return committedAccountData.bins.map(b => ({ ...b })); // Return copies
   }
 
   /**
    * Get auction statistics
    */
-  async getAuctionStats(auctionId: PublicKey) {
-    const auctionInfo = await this.getAuction(auctionId);
-    const BN = require('bn.js');
+  async getAuctionStats(auctionId: PublicKey): Promise<AuctionStats> {
+    const auctionInfo = await this.getAuctionData(auctionId);
+    if (!auctionInfo) {
+      throw new ResetError(ResetErrorCode.ACCOUNT_NOT_FOUND, `Auction ${auctionId.toBase58()} not found for stats.`);
+    }
     
     const totalRaised = auctionInfo.bins.reduce(
       (sum, bin) => sum.add(bin.paymentTokenRaised),
@@ -260,15 +128,17 @@ export class AuctionAPI {
       new BN(0)
     );
 
+    const totalParticipantsNumber = auctionInfo.totalParticipants.toNumber();
+
     return {
       totalRaised,
       totalSold,
-      totalParticipants: auctionInfo.totalParticipants.toNumber(),
-      averageCommitment: auctionInfo.totalParticipants.gt(new BN(0)) 
+      totalParticipants: totalParticipantsNumber,
+      averageCommitment: totalParticipantsNumber > 0 
         ? totalRaised.div(auctionInfo.totalParticipants)
         : new BN(0),
-      fillRate: totalCap.gt(new BN(0)) 
-        ? totalSold.mul(new BN(100)).div(totalCap).toNumber()
+      fillRate: totalCap.gtn(0)
+        ? totalSold.mul(new BN(10000)).div(totalCap).toNumber() / 100
         : 0
     };
   }
@@ -278,11 +148,14 @@ export class AuctionAPI {
    */
   async auctionExists(auctionId: PublicKey): Promise<boolean> {
     try {
-      const connection = this.sdk.getConnection();
-      const auctionAccount = await connection.getAccountInfo(auctionId);
+      const auctionAccount = await this.getAuctionData(auctionId);
       return !!auctionAccount;
     } catch (error) {
-      return false;
+      if (error instanceof ResetError && 
+         (error.code === ResetErrorCode.ACCOUNT_NOT_FOUND || error.code === ResetErrorCode.AUCTION_LOAD_FAILED)) {
+          return false;
+      }
+      throw error; 
     }
   }
 
@@ -290,33 +163,36 @@ export class AuctionAPI {
    * Get auction status
    */
   async getAuctionStatus(auctionId: PublicKey): Promise<{
-    phase: 'upcoming' | 'commit' | 'claim' | 'ended';
+    phase: 'upcoming' | 'commit' | 'claim' | 'ended' | 'unknown';
     timeRemaining?: number;
   }> {
-    const auctionInfo = await this.getAuction(auctionId);
+    const auctionInfo = await this.getAuctionData(auctionId);
+    if (!auctionInfo) {
+      return { phase: 'unknown' }; 
+    }
     const now = Math.floor(Date.now() / 1000);
     
-    const commitStart = auctionInfo.commitStartTime.toNumber();
-    const commitEnd = auctionInfo.commitEndTime.toNumber();
-    const claimStart = auctionInfo.claimStartTime.toNumber();
+    const commitStartTime = auctionInfo.commitStartTime.toNumber();
+    const commitEndTime = auctionInfo.commitEndTime.toNumber();
+    const claimStartTime = auctionInfo.claimStartTime.toNumber();
 
-    if (now < commitStart) {
+    if (now < commitStartTime) {
       return {
         phase: 'upcoming',
-        timeRemaining: commitStart - now
+        timeRemaining: commitStartTime - now
       };
-    } else if (now >= commitStart && now < commitEnd) {
+    } else if (now < commitEndTime) {
       return {
         phase: 'commit',
-        timeRemaining: commitEnd - now
+        timeRemaining: commitEndTime - now
       };
-    } else if (now >= claimStart) {
+    } else if (now >= claimStartTime) { 
       return {
         phase: 'claim'
       };
-    } else {
+    } else { 
       return {
-        phase: 'ended'
+        phase: 'ended' 
       };
     }
   }

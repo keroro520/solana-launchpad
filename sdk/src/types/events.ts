@@ -1,169 +1,79 @@
 import { PublicKey } from '@solana/web3.js';
-import BN from 'bn.js';
-import { CreateAuctionParams } from './auction';
+import { AuctionAccountData, CommittedAccountData } from './auction';
+import { ResetErrorCode } from './errors';
 
-/**
- * Committed bin information for event snapshots
- */
-export interface CommittedBinSnapshot {
-  binId: number;
-  paymentTokenCommitted: BN;
-  saleTokenClaimed: BN;
+export interface ConnectionEstablishedEvent {
+  endpoint: string;
+  timestamp: number;
+}
+
+export interface ErrorEventData {
+  code: ResetErrorCode;
+  message: string;
+  details?: any;
+  timestamp: number;
+}
+
+export interface AuctionLoadedEventData {
+  auctionId: string; // PublicKey.toBase58()
+  data: AuctionAccountData;
+  timestamp: number;
+}
+
+export interface CommittedAccountLoadedEventData {
+  auctionId: string; // PublicKey.toBase58()
+  userId: string; // PublicKey.toBase58()
+  data: CommittedAccountData;
+  timestamp: number;
+}
+
+export interface SdkInitializedEventData {
+  auctionId: string; // PublicKey.toBase58()
+  programId: string; // PublicKey.toBase58()
+  timestamp: number;
+}
+
+export interface SdkDisposedEventData {
+  auctionId: string; // PublicKey.toBase58()
+  timestamp: number;
+}
+
+export interface TransactionSentEventData {
+  signature: string;
+  timestamp: number;
+}
+
+export interface TransactionConfirmedEventData {
+  signature: string;
+  timestamp: number;
+}
+
+export interface TransactionErrorEventData {
+  signature?: string;
+  message: string;
+  error: any;
+  timestamp: number;
 }
 
 /**
- * Snapshot of Committed account data for closure events
+ * Reset SDK Events Map
  */
-export interface CommittedAccountSnapshot {
-  auction: PublicKey;
-  user: PublicKey;
-  bins: CommittedBinSnapshot[];
-  bump: number;
-  totalPaymentCommitted: BN;
-  totalSaleTokensClaimed: BN;
-}
+export type ResetEvents = {
+  // System events
+  'connection:established': ConnectionEstablishedEvent;
+  'sdk:initialized': SdkInitializedEventData;
+  'sdk:disposed': SdkDisposedEventData;
+  'error': ErrorEventData;
 
-/**
- * Reset SDK Events
- */
-export interface ResetEvents {
-  // Auction events
-  'auction:created': {
-    auctionId: PublicKey;
-    signature: string;
-    params: CreateAuctionParams;
-    timestamp: number;
-  };
-
-  'auction:updated': {
-    auctionId: PublicKey;
-    signature: string;
-    timestamp: number;
-  };
-
-  // Commitment events
-  'auction:committed': {
-    auctionId: PublicKey;
-    binId: number;
-    amount: BN;
-    user: PublicKey;
-    signature: string;
-    timestamp: number;
-  };
-
-  'auction:commitment_decreased': {
-    auctionId: PublicKey;
-    binId: number;
-    amount: BN;
-    user: PublicKey;
-    signature: string;
-    timestamp: number;
-  };
-
-  // Account closure events
-  'auction:committed_account_closed': {
-    userKey: PublicKey;
-    auctionKey: PublicKey;
-    committedAccountKey: PublicKey;
-    rentReturned: BN;
-    committedData: CommittedAccountSnapshot;
-    signature: string;
-    timestamp: number;
-  };
-
-  // Claim events
-  'auction:claimed': {
-    auctionId: PublicKey;
-    binId: number;
-    saleTokenClaimed: BN;
-    paymentTokenRefunded: BN;
-    user: PublicKey;
-    signature: string;
-    timestamp: number;
-  };
-
-  'auction:claimed_many': {
-    auctionId: PublicKey;
-    claims: Array<{
-      binId: number;
-      saleTokenClaimed: BN;
-      paymentTokenRefunded: BN;
-    }>;
-    user: PublicKey;
-    signature: string;
-    timestamp: number;
-  };
-
-  // Withdrawal events
-  'auction:funds_withdrawn': {
-    auctionId: PublicKey;
-    amount: BN;
-    authority: PublicKey;
-    signature: string;
-    timestamp: number;
-  };
-
-  'auction:fees_withdrawn': {
-    auctionId: PublicKey;
-    amount: BN;
-    feeRecipient: PublicKey;
-    signature: string;
-    timestamp: number;
-  };
-
-  // Status events
-  'auction:status_changed': {
-    auctionId: PublicKey;
-    oldStatus: string;
-    newStatus: string;
-    timestamp: number;
-  };
-
-  // Error events
-  'error': {
-    code: string;
-    message: string;
-    details?: any;
-    timestamp: number;
-  };
-
-  // Transaction events
-  'transaction:sent': {
-    signature: string;
-    instruction: string;
-    timestamp: number;
-  };
-
-  'transaction:confirmed': {
-    signature: string;
-    instruction: string;
-    slot: number;
-    timestamp: number;
-  };
-
-  'transaction:failed': {
-    signature?: string;
-    instruction: string;
-    error: string;
-    timestamp: number;
-  };
-
-  // Connection events
-  'connection:established': {
-    endpoint: string;
-    timestamp: number;
-  };
-
-  'connection:lost': {
-    endpoint: string;
-    timestamp: number;
-  };
-
-  'connection:reconnected': {
-    endpoint: string;
-    timestamp: number;
-  };
-}
+  // Data loading events
+  'auction:loaded': AuctionLoadedEventData;
+  'committedAccount:loaded': CommittedAccountLoadedEventData;
+  
+  // Transaction lifecycle events
+  'transaction:sent': TransactionSentEventData;
+  'transaction:confirmed': TransactionConfirmedEventData;
+  'transaction:error': TransactionErrorEventData;
+};
 
 /**
  * Event listener type

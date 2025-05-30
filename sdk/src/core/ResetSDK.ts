@@ -1,29 +1,43 @@
-import { Connection, PublicKey, Transaction } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction, Keypair, VersionedTransaction } from '@solana/web3.js';
+import { Program, AnchorProvider, Idl, Wallet } from '@coral-xyz/anchor';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
-import { DEFAULT_SDK_OPTIONS, ResetSDKConfig } from '../types/config';
-import { ResetEvents } from '../types/events';
+import BN from 'bn.js';
+
+import { DEFAULT_SDK_OPTIONS, SDKOptions } from '../types/config';
+import { ResetEvents, SdkInitializedEventData, AuctionLoadedEventData, SdkDisposedEventData } from '../types/events';
 import { ResetError, ResetErrorCode } from '../types/errors';
-import { RESET_PROGRAM_ID, SUPPORTED_VERSIONS } from '../utils/constants';
+import { RESET_PROGRAM_ID, DEFAULT_RPC_ENDPOINT } from '../utils/constants';
 import { EventEmitter } from './EventEmitter';
 import { TransactionBuilder } from './TransactionBuilder';
 import { AuctionAPI } from './AuctionAPI';
 import {
-  AuctionInfo,
-  ClaimManyParams,
-  ClaimParams,
+  AuctionAccountData,
+  CommittedAccountData,
+  CommittedBinData,
+  CreateAuctionParams,
   CommitParams,
   DecreaseCommitParams,
+  ClaimParams,
+  ClaimManyParams,
+  WithdrawFundsParams,
   WithdrawFeesParams,
-  WithdrawFundsParams
+  EmergencyControlInstructionParams,
+  SetPriceInstructionParams,
 } from '../types/auction';
 
+import { ResetProgram, IDL as ResetProgramIDLJson } from '../idl/reset_program';
+import { ResetAllocator } from '../utils/allocator';
+
 /**
- * Single auction information stored in SDK
+ * Configuration for single auction SDK
  */
-interface SingleAuctionInfo {
-  auctionId: PublicKey;
-  info: AuctionInfo;
-  lastUpdated: number;
+export interface SingleAuctionSDKConfig {
+  connection?: Connection;
+  programId?: PublicKey | string;
+  auctionId: PublicKey | string;
+  options?: SDKOptions;
+  wallet?: Wallet;
+  idl?: Idl;
 }
 
 /**
@@ -31,74 +45,111 @@ interface SingleAuctionInfo {
  */
 export interface SimpleCommitParams {
   binId: number;
-  paymentTokenAmount: string | number; // Will be converted to BN
+  paymentTokenAmount: string | number | BN;
 }
 
 export interface SimpleDecreaseCommitParams {
   binId: number;
-  decreaseAmount: string | number; // Will be converted to BN
+  decreaseAmount: string | number | BN;
 }
 
 export interface SimpleClaimParams {
   binId: number;
-  saleTokenAmount: string | number; // Required: exact amount of sale tokens to claim
-  paymentTokenRefund: string | number; // Required: exact amount of payment tokens to refund
+  saleTokenAmount: string | number | BN;
+  paymentTokenRefund: string | number | BN;
 }
 
 export interface SimpleClaimAllParams {
-  // No parameters needed - automatically calculates all claimable tokens
+  // No parameters needed
 }
 
 export interface SimpleClaimManyParams {
-  binIds: number[]; // Will claim from all specified bins
+  claims: Array<{
+    binId: number;
+    saleTokenAmount: string | number | BN;
+    paymentTokenRefund: string | number | BN;
+  }>;
 }
 
-export interface SimpleWithdrawParams {
-  // No parameters needed - uses stored auction info
+export interface SimpleWithdrawAdminParams {
+  authoritySaleTokenAccount?: PublicKey | string;
+  authorityPaymentTokenAccount?: PublicKey | string;
+  feeRecipient?: PublicKey | string;
 }
 
-/**
- * Configuration for single auction SDK
- */
-export interface SingleAuctionSDKConfig extends ResetSDKConfig {
-  auctionId: PublicKey; // Required: the auction this SDK instance manages
+export interface SimpleEmergencyControlParams extends EmergencyControlInstructionParams {}
+
+export interface SimpleSetPriceParams {
+  binId: number;
+  newPrice: string | number | BN;
 }
 
 /**
  * Reset Launchpad SDK for Single Auction Management
- * Provides transaction building capabilities for a specific auction without wallet management
+ * Provides transaction building capabilities for a specific auction using Anchor.
  */
 export class ResetSDK {
-  private connection: Connection;
-  private programId: PublicKey;
+  public readonly connection: Connection;
+  public readonly program: Program<ResetProgram>;
+  public readonly auctionId: PublicKey;
+
   private eventEmitter: EventEmitter;
   private transactionBuilder: TransactionBuilder;
   private auctionAPI: AuctionAPI;
-  private options: Required<typeof DEFAULT_SDK_OPTIONS>;
-  
-  // Single auction information
-  private auctionInfo: SingleAuctionInfo | null = null;
-  private cacheTimeout: number = 30000; // 30 seconds
+  private options: Required<SDKOptions>;
+
+  private auctionAccountData: AuctionAccountData | null = null;
+  private cacheTimeout: number;
+  private lastAuctionLoadTime: number = 0;
 
   constructor(config: SingleAuctionSDKConfig) {
-    // Validate configuration
     this.validateConfig(config);
 
-    this.connection = config.connection;
-    this.programId = config.programId || RESET_PROGRAM_ID;
+    this.connection = config.connection || new Connection(DEFAULT_RPC_ENDPOINT, 'confirmed');
+    const programIdActual: PublicKey = typeof config.programId === 'string' 
+        ? new PublicKey(config.programId) 
+        : config.programId || RESET_PROGRAM_ID;
+    this.auctionId = typeof config.auctionId === 'string' ? new PublicKey(config.auctionId) : config.auctionId;
     this.options = { ...DEFAULT_SDK_OPTIONS, ...config.options };
-    
-    // Initialize components
-    this.eventEmitter = new EventEmitter();
-    this.transactionBuilder = new TransactionBuilder(this.connection, this.programId);
-    this.auctionAPI = new AuctionAPI(this);
+    this.cacheTimeout = this.options.cacheTimeoutMs;
 
-    // Store auction ID for this SDK instance
-    this.auctionInfo = {
-      auctionId: config.auctionId,
-      info: null as any, // Will be loaded during initialization
-      lastUpdated: 0
-    };
+    let providerWallet: Wallet;
+    if (config.wallet) {
+      providerWallet = config.wallet;
+    } else {
+      const dummyKeypair = Keypair.generate(); 
+      providerWallet = {
+        publicKey: dummyKeypair.publicKey, 
+        signTransaction: async <T extends Transaction | VersionedTransaction>(tx: T): Promise<T> => {
+          // This dummy wallet does not sign. Transactions need to be signed by the user's actual wallet.
+          return tx; 
+        },
+        signAllTransactions: async <T extends Transaction | VersionedTransaction>(txs: T[]): Promise<T[]> => {
+          return txs;
+        },
+        // The `payer` property makes it a Signer, which might be expected by some Provider operations
+        // or if the Wallet type is strictly expecting a full NodeWallet-like structure.
+        // However, for a generic Wallet interface, only publicKey and sign methods are mandatory.
+        // Casting to `any` then `Wallet` if strict type for `payer` causes issues with generic Wallet.
+        payer: dummyKeypair 
+      } as Wallet; // Cast to Wallet to ensure compatibility if payer is not strictly part of base Wallet interface
+      
+      if (this.options.verbose) {
+        console.warn('ResetSDK: No wallet provided, using a dummy wallet. SDK functions returning transactions will require external signing.');
+      }
+    }
+
+    const provider: AnchorProvider = new AnchorProvider(this.connection, providerWallet, AnchorProvider.defaultOptions());
+    const idlActual: Idl = config.idl || (ResetProgramIDLJson as Idl);
+    
+    // The following line is where a persistent linter error occurs in some environments.
+    // Ensure AnchorProvider types and Program constructor are correctly inferred by your TS setup.
+    // Expected: Program(idl: Idl, programId: PublicKey | string, provider: AnchorProvider)
+    this.program = new Program<ResetProgram>(idlActual, programIdActual, provider);
+
+    this.eventEmitter = new EventEmitter();
+    this.transactionBuilder = new TransactionBuilder(this.program, this.auctionId);
+    this.auctionAPI = new AuctionAPI(this.program, this.eventEmitter);
   }
 
   /**
@@ -115,29 +166,17 @@ export class ResetSDK {
    */
   private async initialize(): Promise<void> {
     try {
-      // Check version compatibility
-      this.checkVersionCompatibility();
-
-      // Test connection
       await this.testConnection();
+      await this.refreshAuctionInfo();
 
-      // Load auction information
-      await this.loadAuctionInfo();
-
-      // Emit initialization event
-      this.eventEmitter.emit('connection:established', {
-        endpoint: this.connection.rpcEndpoint,
-        timestamp: Date.now()
-      });
-
+      this.eventEmitter.emit('sdk:initialized', {
+        auctionId: this.auctionId.toBase58(),
+        programId: this.program.programId.toBase58(),
+        timestamp: Date.now(),
+      } as SdkInitializedEventData);
     } catch (error) {
-      const resetError = ResetError.fromError(error, ResetErrorCode.INVALID_CONFIG);
-      this.eventEmitter.emit('error', {
-        code: resetError.code,
-        message: resetError.message,
-        details: resetError.details,
-        timestamp: Date.now()
-      });
+      const resetError = ResetError.fromError(error, ResetErrorCode.SDK_INIT_FAILED);
+      this.eventEmitter.emit('error', resetError.toEventData());
       throw resetError;
     }
   }
@@ -145,461 +184,341 @@ export class ResetSDK {
   /**
    * Load auction information from blockchain
    */
-  private async loadAuctionInfo(): Promise<void> {
-    if (!this.auctionInfo) {
-      throw new ResetError(ResetErrorCode.INVALID_CONFIG, 'Auction ID not set');
-    }
-
+  private async internalLoadAuctionInfo(): Promise<AuctionAccountData> {
     try {
-      const info = await this.auctionAPI.getAuction(this.auctionInfo.auctionId);
-      this.auctionInfo.info = info;
-      this.auctionInfo.lastUpdated = Date.now();
+      const info = await this.auctionAPI.getAuctionData(this.auctionId);
+      if (!info) {
+        throw new ResetError(
+          ResetErrorCode.ACCOUNT_NOT_FOUND,
+          `Auction account ${this.auctionId.toBase58()} not found or failed to deserialize.`
+        );
+      }
+      this.auctionAccountData = info;
+      this.lastAuctionLoadTime = Date.now();
+      this.eventEmitter.emit('auction:loaded', { 
+        auctionId: this.auctionId.toBase58(), 
+        data: info, 
+        timestamp: Date.now() 
+      } as AuctionLoadedEventData);
+      return info;
     } catch (error) {
-      throw new ResetError(
-        ResetErrorCode.ACCOUNT_NOT_FOUND,
-        `Failed to load auction information for ${this.auctionInfo.auctionId.toString()}`,
-        error
+      const resetError = ResetError.fromError(
+        error,
+        ResetErrorCode.AUCTION_LOAD_FAILED,
+        `Failed to load auction information for ${this.auctionId.toBase58()}`
       );
+      this.eventEmitter.emit('error', resetError.toEventData());
+      throw resetError;
     }
   }
 
   /**
    * Get auction information (with cache validation)
    */
-  private async getAuctionInfo(): Promise<AuctionInfo> {
-    if (!this.auctionInfo) {
-      throw new ResetError(ResetErrorCode.INVALID_CONFIG, 'SDK not properly initialized');
+  public async getAuctionInfo(): Promise<AuctionAccountData> {
+    if (this.auctionAccountData && (Date.now() - this.lastAuctionLoadTime) < this.cacheTimeout) {
+      return this.auctionAccountData;
     }
-
-    // Check if cache is still valid
-    if (this.auctionInfo.info && (Date.now() - this.auctionInfo.lastUpdated) < this.cacheTimeout) {
-      return this.auctionInfo.info;
-    }
-
-    // Reload from blockchain
-    await this.loadAuctionInfo();
-    return this.auctionInfo.info;
+    return this.internalLoadAuctionInfo();
   }
 
   /**
-   * Get the auction ID this SDK manages
+   * Force refresh auction information from the blockchain
    */
-  getAuctionId(): PublicKey {
-    if (!this.auctionInfo) {
-      throw new ResetError(ResetErrorCode.INVALID_CONFIG, 'SDK not properly initialized');
-    }
-    return this.auctionInfo.auctionId;
+  public async refreshAuctionInfo(): Promise<AuctionAccountData> {
+    return this.internalLoadAuctionInfo();
   }
 
-  /**
-   * Get low-level transaction builder for creating unsigned transactions
-   */
+  /** Get the auction ID this SDK manages */
+  public getAuctionIdPk(): PublicKey {
+    return this.auctionId;
+  }
+
+  /** Get low-level transaction builder for creating unsigned transactions */
   get transactions(): TransactionBuilder {
     return this.transactionBuilder;
   }
 
-  /**
-   * Get auction API for querying auction data
-   */
+  /** Get auction API for querying auction data */
   get auctions(): AuctionAPI {
     return this.auctionAPI;
   }
 
-  // ============================================================================
+  // ===========================================================================
   // HIGH-LEVEL TRANSACTION BUILDING METHODS
-  // ============================================================================
+  // ===========================================================================
 
-  /**
-   * High-level method to commit to the auction
-   * Automatically uses stored auction info and resolves user token accounts
-   */
   async commit(
     params: SimpleCommitParams,
     userPublicKey: PublicKey
   ): Promise<Transaction> {
     try {
-      // Ensure auction info is loaded
-      await this.getAuctionInfo();
-      
-      // Convert amount to BN
-      const BN = require('bn.js');
+      const auctionInfo = await this.getAuctionInfo();
       const paymentTokenCommitted = new BN(params.paymentTokenAmount.toString());
 
-      // Build low-level params using stored auction ID
-      const lowLevelParams: CommitParams = {
-        auctionId: this.getAuctionId(),
+      const instructionParams: CommitParams = {
+        auctionId: this.auctionId,
         binId: params.binId,
-        paymentTokenCommitted
+        paymentTokenCommitted,
       };
-
-      // Use low-level transaction builder
       return await this.transactionBuilder.buildCommitTransaction(
-        lowLevelParams,
-        userPublicKey
+        instructionParams,
+        userPublicKey,
+        auctionInfo.paymentToken
       );
     } catch (error) {
-      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED);
+      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED, "Commit failed");
     }
   }
 
-  /**
-   * High-level method to decrease commitment
-   * Automatically uses stored auction info and resolves user token accounts
-   */
   async decreaseCommit(
     params: SimpleDecreaseCommitParams,
     userPublicKey: PublicKey
   ): Promise<Transaction> {
     try {
-      // Ensure auction info is loaded
-      await this.getAuctionInfo();
-      
-      // Convert amount to BN
-      const BN = require('bn.js');
+      const auctionInfo = await this.getAuctionInfo();
       const paymentTokenToDecrease = new BN(params.decreaseAmount.toString());
 
-      // Build low-level params using stored auction ID
-      const lowLevelParams: DecreaseCommitParams = {
-        auctionId: this.getAuctionId(),
+      const instructionParams: DecreaseCommitParams = {
+        auctionId: this.auctionId,
         binId: params.binId,
-        paymentTokenToDecrease
+        paymentTokenToDecrease,
       };
-
-      // Use low-level transaction builder
       return await this.transactionBuilder.buildDecreaseCommitTransaction(
-        lowLevelParams,
-        userPublicKey
+        instructionParams,
+        userPublicKey,
+        auctionInfo.paymentToken
       );
     } catch (error) {
-      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED);
+      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED, "Decrease commit failed");
     }
   }
 
-  /**
-   * High-level method to claim tokens
-   * Requires exact amounts to be specified
-   */
   async claim(
     params: SimpleClaimParams,
     userPublicKey: PublicKey
   ): Promise<Transaction> {
     try {
-      // Ensure auction info is loaded
-      await this.getAuctionInfo();
-      
-      const BN = require('bn.js');
-      
-      // Use provided amounts (both are required now)
+      const auctionInfo = await this.getAuctionInfo();
       const saleTokenToClaim = new BN(params.saleTokenAmount.toString());
       const paymentTokenToRefund = new BN(params.paymentTokenRefund.toString());
 
-      // Build low-level params using stored auction ID
-      const lowLevelParams: ClaimParams = {
-        auctionId: this.getAuctionId(),
+      const instructionParams: ClaimParams = {
+        auctionId: this.auctionId,
         binId: params.binId,
         saleTokenToClaim,
-        paymentTokenToRefund
+        paymentTokenToRefund,
       };
-
-      // Use low-level transaction builder
       return await this.transactionBuilder.buildClaimTransaction(
-        lowLevelParams,
-        userPublicKey
+        instructionParams,
+        userPublicKey,
+        auctionInfo
       );
     } catch (error) {
-      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED);
+      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED, "Claim failed");
     }
   }
 
   /**
-   * High-level method to claim all tokens for a user
-   * Automatically calculates claimable amounts from all user commitments
-   */
-  async claim_all(
-    params: SimpleClaimAllParams,
-    userPublicKey: PublicKey
-  ): Promise<Transaction> {
-    try {
-      // Ensure auction info is loaded
-      const auctionInfo = await this.getAuctionInfo();
-      
-      // Get all user commitments
-      const userCommitments = await this.auctionAPI.getUserCommitments(
-        this.getAuctionId(),
-        userPublicKey
-      );
-
-      if (userCommitments.length === 0) {
-        throw new ResetError(
-          ResetErrorCode.ACCOUNT_NOT_FOUND,
-          'No commitments found for user'
-        );
-      }
-
-      const BN = require('bn.js');
-      const { ResetMath } = require('../utils/math');
-      const claims = [];
-
-      // Calculate claimable amounts for each bin
-      for (const commitment of userCommitments) {
-        const bin = auctionInfo.bins[commitment.binId];
-        
-        if (!bin) {
-          continue; // Skip invalid bin
-        }
-
-        // Calculate how many sale tokens the user can claim from this bin
-        // This is based on the user's proportion of the total commitment in this bin
-        const totalCommitmentInBin = bin.paymentTokenRaised;
-        const availableSaleTokens = bin.saleTokenCap.sub(bin.saleTokenClaimed);
-        
-        let saleTokenToClaim: InstanceType<typeof BN>;
-        let paymentTokenToRefund: InstanceType<typeof BN>;
-
-        if (totalCommitmentInBin.isZero()) {
-          // No commitments in this bin, user gets nothing
-          saleTokenToClaim = new BN(0);
-          paymentTokenToRefund = commitment.paymentTokenCommitted;
-        } else {
-          // Calculate allocation based on user's share of total commitment
-          saleTokenToClaim = ResetMath.calculateAllocation(
-            commitment.paymentTokenCommitted,
-            totalCommitmentInBin,
-            availableSaleTokens
-          );
-
-          // Calculate refund: committed amount minus what was used to buy tokens
-          const usedPaymentTokens = ResetMath.calculatePaymentTokensFromSale(
-            saleTokenToClaim,
-            bin.saleTokenPrice
-          );
-          paymentTokenToRefund = ResetMath.safeSub(
-            commitment.paymentTokenCommitted,
-            usedPaymentTokens
-          );
-        }
-
-        // Only add to claims if there's something to claim or refund
-        if (saleTokenToClaim.gt(new BN(0)) || paymentTokenToRefund.gt(new BN(0))) {
-          claims.push({
-            binId: commitment.binId,
-            saleTokenToClaim,
-            paymentTokenToRefund
-          });
-        }
-      }
-
-      if (claims.length === 0) {
-        throw new ResetError(
-          ResetErrorCode.INVALID_PARAMS,
-          'No claimable tokens found for user'
-        );
-      }
-
-      // If only one claim, use the regular claim method
-      if (claims.length === 1) {
-        const claim = claims[0];
-        return await this.claim({
-          binId: claim.binId,
-          saleTokenAmount: claim.saleTokenToClaim.toString(),
-          paymentTokenRefund: claim.paymentTokenToRefund.toString()
-        }, userPublicKey);
-      }
-
-      // Multiple claims, use claimMany
-      const lowLevelParams: ClaimManyParams = {
-        auctionId: this.getAuctionId(),
-        claims
-      };
-
-      return await this.transactionBuilder.buildClaimManyTransaction(
-        lowLevelParams,
-        userPublicKey
-      );
-
-    } catch (error) {
-      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED);
-    }
-  }
-
-  /**
-   * High-level method to claim from multiple bins
-   * Automatically calculates claim amounts for all specified bins
+   * High-level method to claim from multiple bins.
+   * This will create a transaction with multiple claim instructions.
    */
   async claimMany(
     params: SimpleClaimManyParams,
     userPublicKey: PublicKey
   ): Promise<Transaction> {
     try {
-      // Ensure auction info is loaded
-      await this.getAuctionInfo();
-      
-      // Get user commitments for all specified bins
-      const claims = [];
-      const BN = require('bn.js');
-      const auctionId = this.getAuctionId();
+      const auctionInfo = await this.getAuctionInfo();
+      const claims: ClaimManyParams['claims'] = params.claims.map(c => ({
+        binId: c.binId,
+        saleTokenToClaim: new BN(c.saleTokenAmount.toString()),
+        paymentTokenToRefund: new BN(c.paymentTokenRefund.toString()),
+      }));
 
-      for (const binId of params.binIds) {
-        const userCommitment = await this.auctionAPI.getUserCommitment(
-          auctionId,
-          userPublicKey,
-          binId
+      const instructionParams: ClaimManyParams = {
+        auctionId: this.auctionId,
+        claims,
+      };
+      return await this.transactionBuilder.buildClaimManyTransaction(
+        instructionParams,
+        userPublicKey,
+        auctionInfo
+      );
+    } catch (error) {
+      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED, "Claim many failed");
+    }
+  }
+  
+  /**
+   * Claim all available tokens for a user across all their committed bins.
+   * This method calculates the claimable amounts for each bin and then
+   * constructs a transaction to claim them, potentially using multiple instructions.
+   */
+  async claimAll(
+    userPublicKey: PublicKey
+  ): Promise<Transaction> {
+    try {
+      const auctionInfo = await this.getAuctionInfo();
+      const committedAccount = await this.auctionAPI.getCommittedData(this.auctionId, userPublicKey);
+
+      if (!committedAccount || committedAccount.bins.length === 0) {
+        throw new ResetError(
+          ResetErrorCode.NO_COMMITMENTS_FOUND,
+          'No commitments found for user to claim.'
         );
+      }
 
-        if (userCommitment) {
-          claims.push({
-            binId,
-            saleTokenToClaim: userCommitment.paymentTokenCommitted,
-            paymentTokenToRefund: new BN(0)
+      const allocator = new ResetAllocator(auctionInfo);
+      
+      const claimsToMake: ClaimManyParams['claims'] = [];
+
+      for (const committedBin of committedAccount.bins) {
+        const auctionBin = auctionInfo.bins[committedBin.binId]; 
+        if (!auctionBin) {
+            if (this.options.verbose) console.warn(`ResetSDK: Auction bin ${committedBin.binId} not found in auction data during claimAll. Skipping.`);
+            continue;
+        }
+
+        const { saleTokens: claimableSaleTokens, refundPaymentTokens: claimablePaymentRefund } = 
+          allocator.calculateUserClaimableForBin(committedBin, auctionBin);
+
+        const alreadyClaimedSale = committedBin.saleTokenClaimed;
+        const alreadyRefundedPayment = committedBin.paymentTokenRefunded;
+
+        const netSaleToClaim = claimableSaleTokens.sub(alreadyClaimedSale);
+        const netPaymentToRefund = claimablePaymentRefund.sub(alreadyRefundedPayment);
+        
+        if (netSaleToClaim.gtn(0) || netPaymentToRefund.gtn(0)) {
+          claimsToMake.push({
+            binId: committedBin.binId,
+            saleTokenToClaim: netSaleToClaim.gt(new BN(0)) ? netSaleToClaim : new BN(0),
+            paymentTokenToRefund: netPaymentToRefund.gt(new BN(0)) ? netPaymentToRefund : new BN(0),
           });
         }
       }
 
-      if (claims.length === 0) {
+      if (claimsToMake.length === 0) {
         throw new ResetError(
-          ResetErrorCode.ACCOUNT_NOT_FOUND,
-          'No commitments found for user in any of the specified bins'
+          ResetErrorCode.NO_CLAIMABLE_TOKENS,
+          'No claimable tokens or refunds found for user after accounting for prior claims/refunds.'
         );
       }
-
-      // Build low-level params using stored auction ID
-      const lowLevelParams: ClaimManyParams = {
-        auctionId,
-        claims
+      
+      const instructionParams: ClaimManyParams = {
+        auctionId: this.auctionId,
+        claims: claimsToMake,
       };
 
-      // Use low-level transaction builder
       return await this.transactionBuilder.buildClaimManyTransaction(
-        lowLevelParams,
-        userPublicKey
+        instructionParams,
+        userPublicKey,
+        auctionInfo
       );
+
     } catch (error) {
-      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED);
+      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED, 'Claim all failed');
     }
   }
 
-  /**
-   * High-level method to withdraw funds (admin only)
-   * Automatically resolves authority token accounts using stored auction info
-   */
   async withdrawFunds(
-    params: SimpleWithdrawParams,
-    authorityPublicKey: PublicKey
+    authorityPublicKey: PublicKey,
+    params?: SimpleWithdrawAdminParams
   ): Promise<Transaction> {
     try {
-      // Get auction info
       const auctionInfo = await this.getAuctionInfo();
+      const instructionParams: WithdrawFundsParams = { auctionId: this.auctionId };
       
-      // Get authority token accounts
-      const authoritySaleTokenAccount = await getAssociatedTokenAddress(
-        auctionInfo.saleToken,
-        authorityPublicKey
-      );
-      
-      const authorityPaymentTokenAccount = await getAssociatedTokenAddress(
-        auctionInfo.paymentToken,
-        authorityPublicKey
-      );
+      const saleRecipient = params?.authoritySaleTokenAccount 
+        ? (typeof params.authoritySaleTokenAccount === 'string' ? new PublicKey(params.authoritySaleTokenAccount) : params.authoritySaleTokenAccount) 
+        : undefined;
+      const paymentRecipient = params?.authorityPaymentTokenAccount 
+        ? (typeof params.authorityPaymentTokenAccount === 'string' ? new PublicKey(params.authorityPaymentTokenAccount) : params.authorityPaymentTokenAccount) 
+        : undefined;
 
-      // Build low-level params using stored auction ID
-      const lowLevelParams: WithdrawFundsParams = {
-        auctionId: this.getAuctionId()
-      };
-
-      // Use low-level transaction builder
       return await this.transactionBuilder.buildWithdrawFundsTransaction(
-        lowLevelParams,
+        instructionParams,
         authorityPublicKey,
-        authoritySaleTokenAccount,
-        authorityPaymentTokenAccount
+        auctionInfo,
+        saleRecipient,
+        paymentRecipient
       );
     } catch (error) {
-      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED);
+      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED, "Withdraw funds failed");
     }
   }
 
-  /**
-   * High-level method to withdraw fees (admin only)
-   * Uses stored auction info
-   */
   async withdrawFees(
-    params: SimpleWithdrawParams & { feeRecipient: PublicKey },
+    authorityPublicKey: PublicKey,
+    params: SimpleWithdrawAdminParams
+  ): Promise<Transaction> {
+    if (!params.feeRecipient) {
+      throw new ResetError(ResetErrorCode.INVALID_PARAMS, "Fee recipient public key is required for withdrawing fees.");
+    }
+    try {
+      const auctionInfo = await this.getAuctionInfo();
+      const feeRecipientPk = typeof params.feeRecipient === 'string' ? new PublicKey(params.feeRecipient) : params.feeRecipient;
+      const instructionParams: WithdrawFeesParams = {
+        auctionId: this.auctionId,
+        feeRecipient: feeRecipientPk,
+      };
+      return await this.transactionBuilder.buildWithdrawFeesTransaction(
+        instructionParams,
+        authorityPublicKey,
+        auctionInfo
+      );
+    } catch (error) {
+      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED, "Withdraw fees failed");
+    }
+  }
+  
+  async emergencyControl(
+    params: SimpleEmergencyControlParams,
     authorityPublicKey: PublicKey
   ): Promise<Transaction> {
     try {
-      // Ensure auction info is loaded (for validation)
       await this.getAuctionInfo();
-
-      // Build low-level params using stored auction ID
-      const lowLevelParams: WithdrawFeesParams = {
-        auctionId: this.getAuctionId(),
-        feeRecipient: params.feeRecipient
-      };
-
-      // Use low-level transaction builder
-      return await this.transactionBuilder.buildWithdrawFeesTransaction(
-        lowLevelParams,
+      
+      return await this.transactionBuilder.buildEmergencyControlTransaction(
+        this.auctionId,
+        params,
         authorityPublicKey
       );
     } catch (error) {
-      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED);
+      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED, "Emergency control failed");
     }
   }
 
-  // ============================================================================
-  // AUCTION INFO MANAGEMENT METHODS
-  // ============================================================================
-
-  /**
-   * Refresh auction information from blockchain
-   */
-  async refreshAuctionInfo(): Promise<AuctionInfo> {
-    await this.loadAuctionInfo();
-    return this.auctionInfo!.info;
+  async setPrice(
+    params: SimpleSetPriceParams,
+    authorityPublicKey: PublicKey
+  ): Promise<Transaction> {
+    try {
+      await this.getAuctionInfo();
+      const newPrice = new BN(params.newPrice.toString());
+      
+      const instructionParams: SetPriceInstructionParams = {
+        auctionId: this.auctionId,
+        binId: params.binId,
+        newPrice,
+      };
+      return await this.transactionBuilder.buildSetPriceTransaction(
+        instructionParams,
+        authorityPublicKey
+      );
+    } catch (error) {
+      throw ResetError.fromError(error, ResetErrorCode.TRANSACTION_FAILED, "Set price failed");
+    }
+  }
+  
+  async getLaunchpadAdmin(): Promise<PublicKey> {
+    try {
+      const adminPubkey = await this.program.methods.getLaunchpadAdmin().view() as PublicKey;
+      return adminPubkey;
+    } catch (error) {
+      throw ResetError.fromError(error, ResetErrorCode.PROGRAM_RPC_ERROR, "Failed to get Launchpad Admin");
+    }
   }
 
-  /**
-   * Get current auction information (cached)
-   */
-  async getCurrentAuctionInfo(): Promise<AuctionInfo> {
-    return await this.getAuctionInfo();
-  }
-
-  /**
-   * Set cache timeout for auction information
-   */
-  setCacheTimeout(timeoutMs: number): void {
-    this.cacheTimeout = timeoutMs;
-  }
-
-  // ============================================================================
-  // EXISTING METHODS
-  // ============================================================================
-
-  /**
-   * Get connection
-   */
-  getConnection(): Connection {
-    return this.connection;
-  }
-
-  /**
-   * Get program ID
-   */
-  getProgramId(): PublicKey {
-    return this.programId;
-  }
-
-  /**
-   * Get SDK options
-   */
-  getOptions(): Required<typeof DEFAULT_SDK_OPTIONS> {
-    return this.options;
-  }
-
-  /**
-   * Add event listener
-   */
   on<K extends keyof ResetEvents>(
     event: K,
     listener: (data: ResetEvents[K]) => void
@@ -607,9 +526,6 @@ export class ResetSDK {
     this.eventEmitter.on(event, listener);
   }
 
-  /**
-   * Remove event listener
-   */
   off<K extends keyof ResetEvents>(
     event: K,
     listener: (data: ResetEvents[K]) => void
@@ -617,9 +533,6 @@ export class ResetSDK {
     this.eventEmitter.off(event, listener);
   }
 
-  /**
-   * Add one-time event listener
-   */
   once<K extends keyof ResetEvents>(
     event: K,
     listener: (data: ResetEvents[K]) => void
@@ -627,106 +540,55 @@ export class ResetSDK {
     this.eventEmitter.once(event, listener);
   }
 
-  /**
-   * Remove all event listeners
-   */
   removeAllListeners(event?: keyof ResetEvents): void {
     this.eventEmitter.removeAllListeners(event);
   }
-
-  /**
-   * Get event emitter (for internal use)
-   */
-  getEventEmitter(): EventEmitter {
-    return this.eventEmitter;
-  }
-
-  /**
-   * Validate SDK configuration
-   */
+  
   private validateConfig(config: SingleAuctionSDKConfig): void {
-    if (!config.connection) {
-      throw new ResetError(
-        ResetErrorCode.INVALID_CONFIG,
-        'Connection is required'
-      );
-    }
-
     if (!config.auctionId) {
-      throw new ResetError(
-        ResetErrorCode.INVALID_CONFIG,
-        'Auction ID is required'
-      );
+      throw new ResetError(ResetErrorCode.INVALID_CONFIG, 'Auction ID is required.');
     }
-
-    if (!(config.auctionId instanceof PublicKey)) {
-      throw new ResetError(
-        ResetErrorCode.INVALID_CONFIG,
-        'Auction ID must be a PublicKey instance'
-      );
+    if (typeof config.auctionId !== 'string' && !(config.auctionId instanceof PublicKey)){
+        throw new ResetError(ResetErrorCode.INVALID_CONFIG, 'Auction ID must be a string or PublicKey.');
     }
-
-    if (config.programId && !(config.programId instanceof PublicKey)) {
-      throw new ResetError(
-        ResetErrorCode.INVALID_CONFIG,
-        'Program ID must be a PublicKey instance'
-      );
+    if (config.connection && !(config.connection instanceof Connection)) {
+      throw new ResetError(ResetErrorCode.INVALID_CONFIG, 'Invalid Connection object provided.');
+    }
+    if (config.wallet && 
+        (!(config.wallet as Wallet).publicKey || 
+        typeof (config.wallet as Wallet).signTransaction !== 'function' || 
+        typeof (config.wallet as Wallet).signAllTransactions !== 'function')) {
+      if (this.options.verbose) console.warn('ResetSDK: Provided wallet may not fully implement the Anchor Wallet interface. Transaction signing by the SDK provider might fail.');
+    }
+    if (config.programId && typeof config.programId !== 'string' && !(config.programId instanceof PublicKey)){
+        throw new ResetError(ResetErrorCode.INVALID_CONFIG, 'Program ID must be a string or PublicKey.');
     }
   }
 
-  /**
-   * Check version compatibility
-   */
-  private checkVersionCompatibility(): void {
-    // This would check the versions of dependencies
-    // For now, we'll just log the supported versions
-    console.log('Supported versions:', SUPPORTED_VERSIONS);
-  }
-
-  /**
-   * Test connection to Solana network
-   */
   private async testConnection(): Promise<void> {
     try {
-      await this.connection.getLatestBlockhash(this.options.commitment);
-    } catch (error) {
-      throw new ResetError(
-        ResetErrorCode.NETWORK_ERROR,
-        'Failed to connect to Solana network',
-        error
-      );
-    }
-  }
-
-  /**
-   * Get network information
-   */
-  async getNetworkInfo(): Promise<{
-    endpoint: string;
-    commitment: string;
-    latestBlockhash: string;
-    slot: number;
-  }> {
-    try {
-      const latestBlockhash = await this.connection.getLatestBlockhash(this.options.commitment);
-      const slot = await this.connection.getSlot(this.options.commitment);
-
-      return {
+      await this.connection.getSlot();
+      this.eventEmitter.emit('connection:established', {
         endpoint: this.connection.rpcEndpoint,
-        commitment: this.options.commitment,
-        latestBlockhash: latestBlockhash.blockhash,
-        slot
-      };
+        timestamp: Date.now(),
+      });
     } catch (error) {
-      throw ResetError.fromError(error, ResetErrorCode.NETWORK_ERROR);
+      const connError = ResetError.fromError(
+        error, 
+        ResetErrorCode.CONNECTION_ERROR,
+        'Failed to connect to Solana RPC endpoint.'
+      );
+      this.eventEmitter.emit('error', connError.toEventData());
+      throw connError;
     }
   }
 
-  /**
-   * Dispose of the SDK and clean up resources
-   */
   dispose(): void {
-    this.eventEmitter.removeAllListeners();
-    this.auctionInfo = null;
+    this.removeAllListeners();
+    this.eventEmitter.emit('sdk:disposed', { 
+      auctionId: this.auctionId.toBase58(), 
+      timestamp: Date.now() 
+    } as SdkDisposedEventData);
+    this.auctionAccountData = null;
   }
 } 

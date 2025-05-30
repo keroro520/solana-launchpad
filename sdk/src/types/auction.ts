@@ -1,49 +1,108 @@
-import { PublicKey, Transaction } from '@solana/web3.js';
 import BN from 'bn.js';
+import { PublicKey } from '@solana/web3.js';
+
+// ============================================================================
+// On-Chain Data Structures (Matching Rust structs)
+// ============================================================================
 
 /**
- * Auction bin parameters for creation
+ * Matches Rust struct `AuctionBinParams` (used in `init_auction`)
  */
-export interface AuctionBinParams {
+export interface AuctionBinParamsData {
   saleTokenPrice: BN;
   saleTokenCap: BN;
 }
 
 /**
- * Auction extension parameters
+ * Matches Rust struct `AuctionExtensions` from `extensions.rs` / `state.rs`
  */
-export interface AuctionExtensionParams {
-  whitelistAuthority?: PublicKey;
-  commitCapPerUser?: BN;
-  claimFeeRate?: number;
+export interface AuctionExtensionsData {
+  whitelistAuthority?: PublicKey | null;
+  commitCapPerUser?: BN | null;
+  claimFeeRate?: BN | null; // u64 in Rust
 }
 
 /**
- * Parameters for creating an auction
+ * Matches Rust struct `EmergencyState` from `state.rs`
  */
-export interface CreateAuctionParams {
-  saleTokenMint: PublicKey;
-  paymentTokenMint: PublicKey;
+export interface EmergencyStateData {
+  pausedOperations: BN; // u64 in Rust, represents a bitmask
+}
+
+/**
+ * Matches Rust struct `AuctionBin` (part of `Auction` account state)
+ */
+export interface AuctionBinData {
+  saleTokenPrice: BN;
+  saleTokenCap: BN;
+  paymentTokenRaised: BN;
+  saleTokenClaimed: BN;
+}
+
+/**
+ * Information about an auction, matches Rust `Auction` account state from `state.rs`
+ */
+export interface AuctionAccountData {
   authority: PublicKey;
   custody: PublicKey;
-  commitStartTime: number;
-  commitEndTime: number;
-  claimStartTime: number;
-  bins: AuctionBinParams[];
-  extensions?: AuctionExtensionParams;
+  saleToken: PublicKey;
+  paymentToken: PublicKey;
+  commitStartTime: BN; // i64
+  commitEndTime: BN; // i64
+  claimStartTime: BN; // i64
+  bins: AuctionBinData[];
+  extensions: AuctionExtensionsData;
+  emergencyState: EmergencyStateData;
+  totalParticipants: BN; // u64
+  unsoldSaleTokensAndEffectivePaymentTokensWithdrawn: boolean;
+  totalFeesCollected: BN; // u64
+  totalFeesWithdrawn: BN; // u64
+  vaultSaleBump: number; // u8
+  vaultPaymentBump: number; // u8
+  bump: number; // u8
 }
 
 /**
- * Result of creating an auction
+ * Matches Rust struct `CommittedBin` (part of `Committed` account state)
  */
-export interface CreateAuctionResult {
-  auctionId: PublicKey;
-  signature: string;
-  transaction: Transaction;
+export interface CommittedBinData {
+  binId: number; // u8
+  paymentTokenCommitted: BN; // u64
+  saleTokenClaimed: BN; // u64
+  paymentTokenRefunded: BN; // u64
 }
 
 /**
- * Parameters for committing to an auction
+ * Information about a user's commitment, matches Rust `Committed` account state from `state.rs`
+ */
+export interface CommittedAccountData {
+  auction: PublicKey;
+  user: PublicKey;
+  bins: CommittedBinData[];
+  bump: number; // u8
+}
+
+// ============================================================================
+// SDK Parameter Types (for instruction builders and high-level methods)
+// ============================================================================
+
+/**
+ * Parameters for creating an auction (`init_auction` instruction)
+ */
+export interface CreateAuctionParams {
+  authority: PublicKey; // Usually the LAUNCHPAD_ADMIN
+  saleTokenMint: PublicKey;
+  paymentTokenMint: PublicKey;
+  commitStartTime: number | BN;
+  commitEndTime: number | BN;
+  claimStartTime: number | BN;
+  bins: AuctionBinParamsData[];
+  custody: PublicKey;
+  extensions: AuctionExtensionsData;
+}
+
+/**
+ * Parameters for committing to an auction bin (`commit` instruction)
  */
 export interface CommitParams {
   auctionId: PublicKey;
@@ -52,32 +111,16 @@ export interface CommitParams {
 }
 
 /**
- * Result of committing to an auction
- */
-export interface CommitResult {
-  signature: string;
-  transaction: Transaction;
-}
-
-/**
- * Parameters for decreasing commitment
+ * Parameters for decreasing a commitment (`decrease_commit` instruction)
  */
 export interface DecreaseCommitParams {
   auctionId: PublicKey;
   binId: number;
-  paymentTokenToDecrease: BN;
+  paymentTokenToDecrease: BN; // Corresponds to payment_token_reverted in Rust
 }
 
 /**
- * Result of decreasing commitment
- */
-export interface DecreaseCommitResult {
-  signature: string;
-  transaction: Transaction;
-}
-
-/**
- * Parameters for claiming tokens
+ * Parameters for claiming tokens from a specific bin (`claim` instruction)
  */
 export interface ClaimParams {
   auctionId: PublicKey;
@@ -87,115 +130,71 @@ export interface ClaimParams {
 }
 
 /**
- * Result of claiming tokens
- */
-export interface ClaimResult {
-  signature: string;
-  transaction: Transaction;
-}
-
-/**
- * Parameters for a single bin claim in batch operation
- */
-export interface ClaimBinParams {
-  binId: number;
-  saleTokenToClaim: BN;
-  paymentTokenToRefund: BN;
-}
-
-/**
- * Parameters for claiming from multiple bins (SDK-level, uses multiple claim instructions)
+ * Parameters for the SDK's `claimMany` functionality,
+ * which constructs multiple `claim` instructions.
  */
 export interface ClaimManyParams {
   auctionId: PublicKey;
-  claims: ClaimBinParams[];
+  claims: Array<{
+    binId: number;
+    saleTokenToClaim: BN;
+    paymentTokenToRefund: BN;
+  }>;
 }
 
 /**
- * Result of claiming from multiple bins
- */
-export interface ClaimManyResult {
-  signature: string;
-  transaction: Transaction;
-}
-
-/**
- * Parameters for withdrawing funds
+ * Parameters for withdrawing funds (`withdraw_funds` instruction - admin)
  */
 export interface WithdrawFundsParams {
   auctionId: PublicKey;
+  // authority, authoritySaleTokenAccount, authorityPaymentTokenAccount are passed directly to builder
 }
 
 /**
- * Result of withdrawing funds
- */
-export interface WithdrawFundsResult {
-  signature: string;
-  transaction: Transaction;
-}
-
-/**
- * Parameters for withdrawing fees
+ * Parameters for withdrawing fees (`withdraw_fees` instruction - admin)
  */
 export interface WithdrawFeesParams {
   auctionId: PublicKey;
-  feeRecipient: PublicKey;
+  feeRecipient: PublicKey; // Destination for fees
+  // authority is passed directly to builder
 }
 
 /**
- * Result of withdrawing fees
+ * Parameters for emergency control (`emergency_control` instruction - admin)
  */
-export interface WithdrawFeesResult {
-  signature: string;
-  transaction: Transaction;
+export interface EmergencyControlInstructionParams {
+  pauseAuctionCommit: boolean;
+  pauseAuctionClaim: boolean;
+  pauseAuctionWithdrawFees: boolean;
+  pauseAuctionWithdrawFunds: boolean;
+  pauseAuctionUpdation: boolean;
 }
 
 /**
- * Auction bin information
+ * Parameters for setting price (`set_price` instruction - admin)
  */
-export interface AuctionBin {
-  saleTokenPrice: BN;
-  saleTokenCap: BN;
-  saleTokenClaimed: BN;
-  paymentTokenRaised: BN;
-  isActive: boolean;
+export interface SetPriceInstructionParams {
+  auctionId: PublicKey;
+  binId: number;
+  newPrice: BN;
+  // authority is passed directly to builder
 }
 
-/**
- * Auction extensions information
- */
-export interface AuctionExtensions {
-  whitelistAuthority?: PublicKey;
-  commitCapPerUser?: BN;
-  claimFeeRate?: number;
-}
+// ============================================================================
+// SDK Data Types (for API responses, often derived from on-chain data)
+// ============================================================================
 
 /**
- * Complete auction information
+ * User-friendly representation of a single bin's commitment status for the SDK.
+ * Derived from `CommittedAccountData`.
  */
-export interface AuctionInfo {
-  authority: PublicKey;
-  saleToken: PublicKey;
-  paymentToken: PublicKey;
-  custody: PublicKey;
-  commitStartTime: BN;
-  commitEndTime: BN;
-  claimStartTime: BN;
-  bins: AuctionBin[];
-  extensions: AuctionExtensions;
-  totalParticipants: BN;
-  vaultSaleBump: number;
-  vaultPaymentBump: number;
-  bump: number;
-}
-
-/**
- * User commitment information
- */
-export interface CommittedInfo {
+export interface UserCommitmentBinInfo {
   binId: number;
   paymentTokenCommitted: BN;
   saleTokenClaimed: BN;
+  paymentTokenRefunded: BN;
+  // Consider adding calculated/claimable fields if frequently needed by UI
+  // e.g., claimableSaleTokens, claimablePaymentTokenRefund
 }
 
 /**

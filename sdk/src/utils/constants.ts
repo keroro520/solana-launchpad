@@ -4,9 +4,10 @@ import { PublicKey } from '@solana/web3.js';
 export const RESET_PROGRAM_ID = new PublicKey('11111111111111111111111111111111'); // 占位符
 
 // PDA Seeds
-export const AUCTION_SEED = 'auction';
-export const COMMITTED_SEED = 'committed';
-export const VAULT_SEED = 'vault';
+export const AUCTION_SEED = Buffer.from('auction');
+export const COMMITTED_SEED = Buffer.from('committed');
+export const VAULT_SALE_SEED = Buffer.from('vault_sale');
+export const VAULT_PAYMENT_SEED = Buffer.from('vault_payment');
 
 // Token Program IDs
 export const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
@@ -39,5 +40,10 @@ export const SUPPORTED_VERSIONS = {
   SPL_TOKEN: {
     min: '0.3.0',
     recommended: '0.3.9'
-  }
-} as const; 
+  },
+  sdk: '1.0.0',
+  program: '0.1.0' // Example program version
+} as const;
+
+// Default RPC endpoint (e.g., Solana devnet)
+export const DEFAULT_RPC_ENDPOINT = 'https://api.devnet.solana.com'; 

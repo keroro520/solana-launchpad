@@ -15,6 +15,8 @@ export interface ApiConfig {
  */
 export interface SDKOptions {
   commitment?: Commitment;
+  verbose?: boolean;
+  cacheTimeoutMs?: number; // Timeout for caching auction data (default: 30000ms)
   skipPreflight?: boolean;
   maxRetries?: number;
   confirmTransactionInitialTimeout?: number;
@@ -64,6 +66,8 @@ export const DEFAULT_API_CONFIG: Required<ApiConfig> = {
 
 export const DEFAULT_SDK_OPTIONS: Required<SDKOptions> = {
   commitment: 'confirmed',
+  verbose: false,
+  cacheTimeoutMs: 30000,
   skipPreflight: false,
   maxRetries: 3,
   confirmTransactionInitialTimeout: 60000,
