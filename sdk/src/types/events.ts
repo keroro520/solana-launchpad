@@ -3,6 +3,27 @@ import BN from 'bn.js';
 import { CreateAuctionParams } from './auction';
 
 /**
+ * Committed bin information for event snapshots
+ */
+export interface CommittedBinSnapshot {
+  binId: number;
+  paymentTokenCommitted: BN;
+  saleTokenClaimed: BN;
+}
+
+/**
+ * Snapshot of Committed account data for closure events
+ */
+export interface CommittedAccountSnapshot {
+  auction: PublicKey;
+  user: PublicKey;
+  bins: CommittedBinSnapshot[];
+  bump: number;
+  totalPaymentCommitted: BN;
+  totalSaleTokensClaimed: BN;
+}
+
+/**
  * Reset SDK Events
  */
 export interface ResetEvents {
@@ -35,6 +56,17 @@ export interface ResetEvents {
     binId: number;
     amount: BN;
     user: PublicKey;
+    signature: string;
+    timestamp: number;
+  };
+
+  // Account closure events
+  'auction:committed_account_closed': {
+    userKey: PublicKey;
+    auctionKey: PublicKey;
+    committedAccountKey: PublicKey;
+    rentReturned: BN;
+    committedData: CommittedAccountSnapshot;
     signature: string;
     timestamp: number;
   };

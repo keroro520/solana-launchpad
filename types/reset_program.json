@@ -230,7 +230,7 @@
     {
       "name": "commit",
       "docs": [
-        "User commits to an auction tier"
+        "User commits to an auction bin"
       ],
       "discriminator": [
         223,
@@ -386,6 +386,49 @@
         {
           "name": "payment_token_reverted",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "emergency_control",
+      "docs": [
+        "Emergency control for pausing/resuming auction operations"
+      ],
+      "discriminator": [
+        40,
+        126,
+        46,
+        161,
+        192,
+        12,
+        37,
+        0
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "Only auction authority can control emergency state"
+          ],
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "auction"
+          ]
+        },
+        {
+          "name": "auction",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "EmergencyControlParams"
+            }
+          }
         }
       ]
     },
@@ -588,7 +631,7 @@
     {
       "name": "set_price",
       "docs": [
-        "Admin sets new price for a tier"
+        "Admin sets new price for a bin"
       ],
       "discriminator": [
         16,
@@ -628,7 +671,7 @@
     {
       "name": "withdraw_fees",
       "docs": [
-        "Admin withdraws collected fees from all tiers (simplified - no bin_id)"
+        "Admin withdraws collected fees from all bins (simplified - no bin_id)"
       ],
       "discriminator": [
         198,
@@ -697,7 +740,7 @@
     {
       "name": "withdraw_funds",
       "docs": [
-        "Admin withdraws funds from all auction tiers (simplified - no bin_id)"
+        "Admin withdraws funds from all auction bins (simplified - no bin_id)"
       ],
       "discriminator": [
         241,
@@ -823,6 +866,34 @@
       ]
     }
   ],
+  "events": [
+    {
+      "name": "CommittedAccountClosedEvent",
+      "discriminator": [
+        99,
+        216,
+        87,
+        242,
+        221,
+        79,
+        123,
+        30
+      ]
+    },
+    {
+      "name": "EmergencyControlEvent",
+      "discriminator": [
+        3,
+        252,
+        56,
+        49,
+        253,
+        0,
+        21,
+        181
+      ]
+    }
+  ],
   "errors": [
     {
       "code": 12000,
@@ -921,8 +992,18 @@
     },
     {
       "code": 12406,
-      "name": "ExceedsTierCap",
-      "msg": "Exceeds tier cap"
+      "name": "ExceedsBinCap",
+      "msg": "Exceeds bin cap"
+    },
+    {
+      "code": 12407,
+      "name": "InvalidInput",
+      "msg": "Invalid input"
+    },
+    {
+      "code": 12600,
+      "name": "OperationPaused",
+      "msg": "Operation is paused by emergency control"
     },
     {
       "code": 12500,
@@ -948,21 +1029,7 @@
           {
             "name": "authority",
             "docs": [
-              "Platform administrator"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "sale_token",
-            "docs": [
-              "Sale token mint (tokens being sold)"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "payment_token",
-            "docs": [
-              "Payment token mint (tokens used for payment)"
+              "Launchpad admin"
             ],
             "type": "pubkey"
           },
@@ -970,6 +1037,20 @@
             "name": "custody",
             "docs": [
               "Custody account for special permissions"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "sale_token",
+            "docs": [
+              "Sale token mint"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "payment_token",
+            "docs": [
+              "Payment token mint"
             ],
             "type": "pubkey"
           },
@@ -991,7 +1072,7 @@
           {
             "name": "bins",
             "docs": [
-              "Auction tiers (up to 100 tiers)"
+              "Auction bins (up to 10 bins)"
             ],
             "type": {
               "vec": {
@@ -1011,6 +1092,24 @@
                 "name": "AuctionExtensions"
               }
             }
+          },
+          {
+            "name": "emergency_state",
+            "docs": [
+              "Emergency control state (newly added)"
+            ],
+            "type": {
+              "defined": {
+                "name": "EmergencyState"
+              }
+            }
+          },
+          {
+            "name": "total_participants",
+            "docs": [
+              "Total number of unique participants in this auction"
+            ],
+            "type": "u64"
           },
           {
             "name": "vault_sale_bump",
@@ -1036,7 +1135,7 @@
     {
       "name": "AuctionBin",
       "docs": [
-        "Individual auction tier data"
+        "Individual auction bin data"
       ],
       "type": {
         "kind": "struct",
@@ -1044,28 +1143,28 @@
           {
             "name": "sale_token_price",
             "docs": [
-              "Price per sale token (in payment token units)"
+              "Price per sale token (in payment tokens)"
             ],
             "type": "u64"
           },
           {
             "name": "sale_token_cap",
             "docs": [
-              "Maximum sale tokens this tier can sell"
+              "Maximum sale tokens this bin can sell"
             ],
             "type": "u64"
           },
           {
             "name": "payment_token_raised",
             "docs": [
-              "Payment tokens actually raised in this tier"
+              "Payment tokens actually raised in this bin"
             ],
             "type": "u64"
           },
           {
             "name": "sale_token_claimed",
             "docs": [
-              "Sale tokens already claimed from this tier"
+              "Sale tokens already claimed from this bin"
             ],
             "type": "u64"
           }
@@ -1170,7 +1269,7 @@
     {
       "name": "Committed",
       "docs": [
-        "User commitment data for all auction tiers",
+        "User commitment data for all auction bins",
         "PDA: [\"committed\", auction_key, user_key]"
       ],
       "type": {
@@ -1214,6 +1313,115 @@
       }
     },
     {
+      "name": "CommittedAccountClosedEvent",
+      "docs": [
+        "Event emitted when a user's Committed account is fully claimed and closed"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user_key",
+            "docs": [
+              "User who owned the committed account"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "auction_key",
+            "docs": [
+              "The auction this commitment was for"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "committed_account_key",
+            "docs": [
+              "The committed account that was closed"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "rent_returned",
+            "docs": [
+              "Amount of rent returned to the user (in lamports)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "committed_data",
+            "docs": [
+              "Snapshot of the committed account data at time of closure"
+            ],
+            "type": {
+              "defined": {
+                "name": "CommittedAccountSnapshot"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "CommittedAccountSnapshot",
+      "docs": [
+        "Snapshot of Committed account data for the closure event"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "docs": [
+              "Reference to the auction account"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "docs": [
+              "User who made the commitment"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bins",
+            "docs": [
+              "All bins this user committed to"
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "CommittedBin"
+                }
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "total_payment_committed",
+            "docs": [
+              "Total payment tokens committed across all bins"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_sale_tokens_claimed",
+            "docs": [
+              "Total sale tokens claimed across all bins"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "CommittedBin",
       "docs": [
         "Individual bin commitment data within a user's commitment"
@@ -1239,6 +1447,74 @@
             "name": "sale_token_claimed",
             "docs": [
               "Amount of sale tokens already claimed from this bin"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EmergencyControlEvent",
+      "docs": [
+        "Emergency control event"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "paused_operations",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EmergencyControlParams",
+      "docs": [
+        "Emergency control parameters for instruction"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pause_auction_commit",
+            "type": "bool"
+          },
+          {
+            "name": "pause_auction_claim",
+            "type": "bool"
+          },
+          {
+            "name": "pause_auction_withdraw_fees",
+            "type": "bool"
+          },
+          {
+            "name": "pause_auction_withdraw_funds",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EmergencyState",
+      "docs": [
+        "Emergency control state (embedded in Auction)"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "paused_operations",
+            "docs": [
+              "Paused operations bitmask"
             ],
             "type": "u64"
           }

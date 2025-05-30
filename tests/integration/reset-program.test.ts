@@ -154,7 +154,7 @@ describe("Reset Program Integration Tests (New Architecture)", () => {
       console.log("✓ Auction started");
     });
 
-    it("should allow user to commit to auction tier", async () => {
+    it("should allow user to commit to auction bin", async () => {
       const commitAmount = new BN(10_000_000); // 10M payment tokens
       const binId = 0;
 
@@ -419,7 +419,7 @@ describe("Reset Program Integration Tests (New Architecture)", () => {
   });
 
   describe("Batch Withdrawal Operations", () => {
-    it("should allow admin to withdraw funds from all tiers", async () => {
+    it("should allow admin to withdraw funds from all bins", async () => {
       // Get initial balances
       const initialAuthoritySaleBalance = await getTokenBalance(
         commitCtx.connection,
@@ -458,7 +458,7 @@ describe("Reset Program Integration Tests (New Architecture)", () => {
       expect(finalAuthoritySaleBalance.gt(initialAuthoritySaleBalance)).to.be.true;
       expect(finalAuthorityPaymentBalance.gt(initialAuthorityPaymentBalance)).to.be.true;
 
-      console.log("✓ Batch withdrawal from all tiers successful");
+      console.log("✓ Batch withdrawal from all bins successful");
     });
 
     it("should allow admin to withdraw fees with recipient parameter", async () => {
@@ -495,7 +495,7 @@ describe("Reset Program Integration Tests (New Architecture)", () => {
   });
 
   describe("Price Updates", () => {
-    it("should allow admin to update tier prices", async () => {
+    it("should allow admin to update bin prices", async () => {
       const binId = 0;
       const newPrice = new BN(1_500_000); // 1.5 payment tokens per sale token
 

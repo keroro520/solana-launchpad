@@ -4,7 +4,7 @@ import { calculateClaimableAmount } from "../utils/setup";
 
 describe("Allocation Algorithm Unit Tests", () => {
   describe("Under-subscribed scenarios", () => {
-    it("should return full commitment when tier is under-subscribed", () => {
+    it("should return full commitment when bin is under-subscribed", () => {
       const userCommitted = new BN(10_000_000); // 10M tokens
       const mockBin = {
         paymentTokenRaised: new BN(30_000_000), // 30M tokens total
@@ -130,7 +130,7 @@ describe("Allocation Algorithm Unit Tests", () => {
       expect(saleTokens.toString()).to.equal("10");
     });
 
-    it("should handle zero tier capacity", () => {
+    it("should handle zero bin capacity", () => {
       const userCommitted = new BN(10_000_000);
       const mockBin = {
         paymentTokenRaised: new BN(50_000_000),
@@ -140,7 +140,7 @@ describe("Allocation Algorithm Unit Tests", () => {
 
       const { saleTokens, refundTokens } = calculateClaimableAmount(userCommitted, mockBin);
       
-      // When tier cap is 0, user should get 0 allocation and full refund
+      // When bin cap is 0, user should get 0 allocation and full refund
       expect(saleTokens.toString()).to.equal("0");
       expect(refundTokens.toString()).to.equal(userCommitted.toString());
     });
@@ -155,7 +155,7 @@ describe("Allocation Algorithm Unit Tests", () => {
 
       const { saleTokens } = calculateClaimableAmount(userCommitted, mockBin);
       
-      // Expected: user_committed * (tier_cap / total_raised) / price
+      // Expected: user_committed * (bin_cap / total_raised) / price
       // = 999999999999999999 * (999999999999999999 / 1999999999999999998) / 1000000
       // ≈ 499999999999999999 sale tokens
       expect(parseInt(saleTokens.toString())).to.be.greaterThan(0);
@@ -178,7 +178,7 @@ describe("Allocation Algorithm Unit Tests", () => {
   });
 
   describe("Proportional allocation verification", () => {
-    it("should ensure total allocations don't exceed tier capacity", () => {
+    it("should ensure total allocations don't exceed bin capacity", () => {
       const mockBin = {
         paymentTokenRaised: new BN(300_000_000), // 300M raised (3x over-subscribed)
         saleTokenCap: new BN(100_000_000), // 100M capacity
@@ -199,7 +199,7 @@ describe("Allocation Algorithm Unit Tests", () => {
         totalAllocated = totalAllocated.add(saleTokens);
       }
       
-      // Total allocated should not exceed tier capacity (converted to sale tokens)
+      // Total allocated should not exceed bin capacity (converted to sale tokens)
       const maxPossibleSaleTokens = mockBin.saleTokenCap.div(mockBin.saleTokenPrice);
       expect(totalAllocated.lte(maxPossibleSaleTokens)).to.be.true;
     });

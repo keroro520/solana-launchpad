@@ -48,7 +48,7 @@ pub mod reset_program {
         instructions::emergency_control(ctx, params)
     }
 
-    /// User commits to an auction tier
+    /// User commits to an auction bin
     pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) -> Result<()> {
         instructions::commit(ctx, bin_id, payment_token_committed)
     }
@@ -72,17 +72,17 @@ pub mod reset_program {
         instructions::claim(ctx, bin_id, sale_token_to_claim, payment_token_to_refund)
     }
 
-    /// Admin withdraws funds from all auction tiers (simplified - no bin_id)
+    /// Admin withdraws funds from all auction bins (simplified - no bin_id)
     pub fn withdraw_funds(ctx: Context<WithdrawFunds>) -> Result<()> {
         instructions::withdraw_funds(ctx)
     }
 
-    /// Admin withdraws collected fees from all tiers (simplified - no bin_id)
+    /// Admin withdraws collected fees from all bins (simplified - no bin_id)
     pub fn withdraw_fees(ctx: Context<WithdrawFees>) -> Result<()> {
         instructions::withdraw_fees(ctx)
     }
 
-    /// Admin sets new price for a tier
+    /// Admin sets new price for a bin
     pub fn set_price(ctx: Context<SetPrice>, bin_id: u8, new_price: u64) -> Result<()> {
         instructions::set_price(ctx, bin_id, new_price)
     }

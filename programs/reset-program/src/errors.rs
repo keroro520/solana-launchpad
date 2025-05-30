@@ -51,8 +51,8 @@ pub enum ResetErrorCode {
     InvalidPDA = 6404,
     #[msg("Commit cap exceeded")]
     CommitCapExceeded = 6405,
-    #[msg("Exceeds tier cap")]
-    ExceedsTierCap = 6406,
+    #[msg("Exceeds bin cap")]
+    ExceedsBinCap = 6406,
     #[msg("Invalid input")]
     InvalidInput = 6407,
 

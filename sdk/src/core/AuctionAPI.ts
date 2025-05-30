@@ -5,6 +5,7 @@ import {
 } from '../types/auction';
 import { ResetError, ResetErrorCode } from '../types/errors';
 import { Validation } from '../utils/validation';
+import { EventParser, ParsedCommittedAccountClosedEvent } from '../utils/events';
 
 // Forward declaration to avoid circular dependency
 interface ResetSDK {
@@ -17,9 +18,11 @@ interface ResetSDK {
  */
 export class AuctionAPI {
   private sdk: ResetSDK;
+  private eventParser: EventParser;
 
   constructor(sdk: ResetSDK) {
     this.sdk = sdk;
+    this.eventParser = new EventParser(this.sdk.getConnection(), this.sdk.getProgramId());
   }
 
   /**
@@ -74,7 +77,11 @@ export class AuctionAPI {
   }
 
   /**
-   * Get user commitment information
+   * Get user commitment information for a specific bin
+   * @param auctionId - The auction public key
+   * @param user - The user public key
+   * @param binId - The bin ID to get commitment for
+   * @returns CommittedInfo for the specific bin or null if not found
    */
   async getUserCommitment(
     auctionId: PublicKey,
@@ -86,59 +93,147 @@ export class AuctionAPI {
       
       const connection = this.sdk.getConnection();
       
-      // Calculate committed PDA
+      // Calculate committed PDA (new architecture: no binId in PDA)
       const { ResetPDA } = require('../utils/pda');
       const [committedPda] = ResetPDA.findCommittedAddress(
         auctionId,
         user,
-        binId,
         this.sdk.getProgramId()
       );
+
+      console.log(`🔍 Checking commitment for user: ${user.toString()}`);
+      console.log(`📍 Committed PDA: ${committedPda.toString()}`);
+      console.log(`🎯 Looking for bin: ${binId}`);
 
       const committedAccount = await connection.getAccountInfo(committedPda);
       
       if (!committedAccount) {
-        return null; // No commitment found
+        console.log('⚠️  Committed account not found - checking for account closure event...');
+        
+        // Try to find the account closure event
+        const closureEvent = await this.eventParser.findCommittedAccountClosedEvent(committedPda);
+        
+        if (closureEvent) {
+          console.log('✅ Found account closure event!');
+          EventParser.printCommittedAccountClosedEvent(closureEvent);
+          
+          // Extract commitment info for the requested bin from the closure event
+          const binCommitment = closureEvent.committedData.bins.find(bin => bin.binId === binId);
+          
+          if (binCommitment) {
+            console.log(`📋 Returning commitment data for bin ${binId} from closure event`);
+            return {
+              binId: binCommitment.binId,
+              paymentTokenCommitted: binCommitment.paymentTokenCommitted,
+              saleTokenClaimed: binCommitment.saleTokenClaimed
+            };
+          } else {
+            console.log(`❌ No commitment found for bin ${binId} in closure event`);
+            return null;
+          }
+        } else {
+          console.log('❌ No account closure event found - user never committed to this auction');
+          return null; // No commitment found
+        }
       }
 
+      // Account exists - parse it normally
+      console.log('✅ Committed account found - parsing account data...');
+
       // In a real implementation, this would deserialize the account data
+      // and find the specific bin commitment
       // For now, return mock data
       const BN = require('bn.js');
       
-      return {
-        binId,
-        paymentTokenCommitted: new BN('1000000'),
-        saleTokenClaimed: new BN('0')
-      };
+      // 如果账户存在，返回 mock 数据
+      if (committedAccount) {
+        return {
+          binId,
+          paymentTokenCommitted: new BN('1000000'),
+          saleTokenClaimed: new BN('0')
+        };
+      }
+
+      // 如果账户不存在，返回 null
+      return null;
 
     } catch (error) {
+      console.error('Error in getUserCommitment:', error);
       throw ResetError.fromError(error, ResetErrorCode.ACCOUNT_NOT_FOUND);
     }
   }
 
   /**
    * Get all user commitments for an auction
+   * @param auctionId - The auction public key
+   * @param user - The user public key
+   * @returns Array of CommittedInfo for all bins the user committed to
    */
   async getUserCommitments(
     auctionId: PublicKey,
     user: PublicKey
   ): Promise<CommittedInfo[]> {
     try {
-      // Get auction info to determine number of bins
-      const auctionInfo = await this.getAuction(auctionId);
-      const commitments: CommittedInfo[] = [];
+      const connection = this.sdk.getConnection();
+      
+      // Calculate committed PDA (new architecture: no binId in PDA)
+      const { ResetPDA } = require('../utils/pda');
+      const [committedPda] = ResetPDA.findCommittedAddress(
+        auctionId,
+        user,
+        this.sdk.getProgramId()
+      );
 
-      // Check each bin for user commitments
-      for (let binId = 0; binId < auctionInfo.bins.length; binId++) {
-        const commitment = await this.getUserCommitment(auctionId, user, binId);
-        if (commitment) {
-          commitments.push(commitment);
+      console.log(`🔍 Getting all commitments for user: ${user.toString()}`);
+      console.log(`📍 Committed PDA: ${committedPda.toString()}`);
+
+      const committedAccount = await connection.getAccountInfo(committedPda);
+      
+      if (!committedAccount) {
+        console.log('⚠️  Committed account not found - checking for account closure event...');
+        
+        // Try to find the account closure event
+        const closureEvent = await this.eventParser.findCommittedAccountClosedEvent(committedPda);
+        
+        if (closureEvent) {
+          console.log('✅ Found account closure event!');
+          EventParser.printCommittedAccountClosedEvent(closureEvent);
+          
+          // Return all bin commitments from the closure event
+          return closureEvent.committedData.bins.map(bin => ({
+            binId: bin.binId,
+            paymentTokenCommitted: bin.paymentTokenCommitted,
+            saleTokenClaimed: bin.saleTokenClaimed
+          }));
+        } else {
+          console.log('❌ No account closure event found - user never committed to this auction');
+          return [];
         }
       }
 
-      return commitments;
+      // Account exists - parse it normally
+      console.log('✅ Committed account found - parsing all bin commitments...');
+
+      // In a real implementation, this would deserialize the account data
+      // and return all bin commitments
+      // For now, return mock data
+      const BN = require('bn.js');
+      
+      return [
+        {
+          binId: 0,
+          paymentTokenCommitted: new BN('1000000'),
+          saleTokenClaimed: new BN('500000')
+        },
+        {
+          binId: 1,
+          paymentTokenCommitted: new BN('2000000'),
+          saleTokenClaimed: new BN('1000000')
+        }
+      ];
 
     } catch (error) {
+      console.error('Error in getUserCommitments:', error);
       throw ResetError.fromError(error, ResetErrorCode.ACCOUNT_NOT_FOUND);
     }
   }

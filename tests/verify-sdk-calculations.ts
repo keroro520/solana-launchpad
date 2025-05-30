@@ -20,14 +20,14 @@ function calculateClaimableAmountSDK(
   mockBin: { saleTokenCap: BN; paymentTokenRaised: BN; saleTokenPrice: BN }
 ): { saleTokens: BN; refundTokens: BN } {
   const totalRaised = mockBin.paymentTokenRaised;
-  const tierCap = mockBin.saleTokenCap;
+  const binCap = mockBin.saleTokenCap;
   const price = mockBin.saleTokenPrice;
   
   // Calculate sale tokens based on price
   const maxSaleTokens = userCommitted.div(price);
 
   // If under-subscribed, user gets full commitment
-  if (totalRaised.lte(tierCap)) {
+  if (totalRaised.lte(binCap)) {
     return {
       saleTokens: maxSaleTokens,
       refundTokens: new BN(0)
@@ -36,7 +36,7 @@ function calculateClaimableAmountSDK(
 
   // If over-subscribed, apply proportional allocation
   const scalingFactor = new BN(1_000_000_000);
-  const allocationRatio = tierCap.mul(scalingFactor).div(totalRaised);
+  const allocationRatio = binCap.mul(scalingFactor).div(totalRaised);
   const allocatedTokens = maxSaleTokens.mul(allocationRatio).div(scalingFactor);
   const refundTokens = userCommitted.sub(allocatedTokens.mul(price));
   

@@ -84,7 +84,7 @@ async function createAuction(
   const commitEndTime = new BN(now + 3660);
   const claimStartTime = new BN(now + 3960);
 
-  // Auction tiers configuration
+  // Auction bins configuration
   const bins = [
     {
       saleTokenPrice: new BN(1_000_000), // 1 payment token = 1 sale token
@@ -146,7 +146,7 @@ async function createAuction(
 }
 
 /**
- * Example: User commits to an auction tier
+ * Example: User commits to an auction bin
  */
 async function commitToAuction(
   program: Program<ResetProgram>,
@@ -157,7 +157,7 @@ async function commitToAuction(
   binId: number,
   commitAmount: BN
 ): Promise<PublicKey> {
-  console.log(`💰 User committing ${commitAmount.toString()} tokens to tier ${binId}...`);
+  console.log(`💰 User committing ${commitAmount.toString()} tokens to bin ${binId}...`);
 
   // Derive committed PDA - seed structure: ["committed", auction_key, user_key] (no bin_id)
   const [committedPda] = PublicKey.findProgramAddressSync(
@@ -277,7 +277,7 @@ async function claimTokens(
 }
 
 /**
- * Example: Admin withdraws funds from all tiers
+ * Example: Admin withdraws funds from all bins
  */
 async function withdrawFunds(
   program: Program<ResetProgram>,
@@ -288,7 +288,7 @@ async function withdrawFunds(
   authoritySaleToken: PublicKey,
   authorityPaymentToken: PublicKey
 ): Promise<void> {
-  console.log("💸 Admin withdrawing funds from all tiers...");
+  console.log("💸 Admin withdrawing funds from all bins...");
 
   try {
     const tx = await program.methods
@@ -371,7 +371,7 @@ async function displayAccountData(
       console.log("   Bins:", auctionData.bins.length);
       
       auctionData.bins.forEach((bin, index) => {
-        console.log(`   Tier ${index}:`);
+        console.log(`   Bin ${index}:`);
         console.log(`     Price: ${bin.saleTokenPrice.toString()}`);
         console.log(`     Cap: ${bin.paymentTokenCap.toString()}`);
         console.log(`     Raised: ${bin.paymentTokenRaised.toString()}`);
@@ -539,7 +539,7 @@ async function main() {
       new BN(0) // No payment token refund for this example
     );
 
-    // 8. Admin withdraws funds from all tiers
+    // 8. Admin withdraws funds from all bins
     console.log("\n💸 Admin withdrawing funds...");
     const authorityPaymentToken = await createAccount(
       connection,

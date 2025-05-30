@@ -91,14 +91,14 @@ describe("Edge Cases and Boundary Conditions", () => {
       }
     });
 
-    it("should handle exact tier capacity commitments", async () => {
-      const tierCapacity = TEST_CONFIG.BINS[0].sellTokenCap;
+    it("should handle exact bin capacity commitments", async () => {
+      const binCapacity = TEST_CONFIG.BINS[0].sellTokenCap;
       const binId = 0;
 
-      // This test would need a user with exactly the tier capacity
+      // This test would need a user with exactly the bin capacity
       // For now, we'll test the concept
-      expect(tierCapacity.gt(new BN(0))).to.be.true;
-      console.log(`Tier capacity: ${tierCapacity.toString()}`);
+      expect(binCapacity.gt(new BN(0))).to.be.true;
+      console.log(`Bin capacity: ${binCapacity.toString()}`);
     });
 
     it("should handle commitments that exactly fill remaining capacity", async () => {
@@ -179,12 +179,12 @@ describe("Edge Cases and Boundary Conditions", () => {
   describe("Allocation Edge Cases", () => {
     it("should handle exact allocation scenarios", async () => {
       // Test scenario where allocation exactly matches commitment
-      const tierCapacity = new BN(100_000_000);
+      const binCapacity = new BN(100_000_000);
       const totalCommitted = new BN(100_000_000); // Exact match
       const userCommitment = new BN(10_000_000);
 
       // Calculate allocation (should be 1:1)
-      const allocationRatio = tierCapacity.mul(new BN(1_000_000_000)).div(totalCommitted);
+      const allocationRatio = binCapacity.mul(new BN(1_000_000_000)).div(totalCommitted);
       const userAllocation = userCommitment.mul(allocationRatio).div(new BN(1_000_000_000));
 
       expect(userAllocation.toString()).to.equal(userCommitment.toString());
@@ -192,11 +192,11 @@ describe("Edge Cases and Boundary Conditions", () => {
 
     it("should handle minimal over-subscription", async () => {
       // Test scenario with just 1 unit over-subscription
-      const tierCapacity = new BN(100_000_000);
+      const binCapacity = new BN(100_000_000);
       const totalCommitted = new BN(100_000_001); // 1 unit over
       const userCommitment = new BN(10_000_000);
 
-      const allocationRatio = tierCapacity.mul(new BN(1_000_000_000)).div(totalCommitted);
+      const allocationRatio = binCapacity.mul(new BN(1_000_000_000)).div(totalCommitted);
       const userAllocation = userCommitment.mul(allocationRatio).div(new BN(1_000_000_000));
 
       // User should get slightly less than committed
@@ -209,11 +209,11 @@ describe("Edge Cases and Boundary Conditions", () => {
 
     it("should handle extreme over-subscription", async () => {
       // Test scenario with massive over-subscription
-      const tierCapacity = new BN(100_000_000);
+      const binCapacity = new BN(100_000_000);
       const totalCommitted = new BN(1_000_000_000); // 10x over-subscribed
       const userCommitment = new BN(10_000_000);
 
-      const allocationRatio = tierCapacity.mul(new BN(1_000_000_000)).div(totalCommitted);
+      const allocationRatio = binCapacity.mul(new BN(1_000_000_000)).div(totalCommitted);
       const userAllocation = userCommitment.mul(allocationRatio).div(new BN(1_000_000_000));
 
       // User should get 1/10th of their commitment
@@ -226,11 +226,11 @@ describe("Edge Cases and Boundary Conditions", () => {
 
     it("should handle single user scenarios", async () => {
       // Test allocation when only one user commits
-      const tierCapacity = new BN(100_000_000);
+      const binCapacity = new BN(100_000_000);
       const userCommitment = new BN(50_000_000); // Under-subscribed
       const totalCommitted = userCommitment;
 
-      const allocationRatio = tierCapacity.mul(new BN(1_000_000_000)).div(totalCommitted);
+      const allocationRatio = binCapacity.mul(new BN(1_000_000_000)).div(totalCommitted);
       const userAllocation = userCommitment.mul(allocationRatio).div(new BN(1_000_000_000));
 
       // User should get their full commitment
@@ -253,11 +253,11 @@ describe("Edge Cases and Boundary Conditions", () => {
 
     it("should handle very small allocation ratios", async () => {
       // Test with very small allocation ratios
-      const tierCapacity = new BN(1);
+      const binCapacity = new BN(1);
       const totalCommitted = new BN(1_000_000_000);
       const userCommitment = new BN(1_000_000);
 
-      const allocationRatio = tierCapacity.mul(new BN(1_000_000_000)).div(totalCommitted);
+      const allocationRatio = binCapacity.mul(new BN(1_000_000_000)).div(totalCommitted);
       const userAllocation = userCommitment.mul(allocationRatio).div(new BN(1_000_000_000));
 
       // With such a small ratio, user might get 0 allocation
@@ -266,14 +266,14 @@ describe("Edge Cases and Boundary Conditions", () => {
 
     it("should handle rounding edge cases", async () => {
       // Test scenarios where rounding could cause issues
-      const tierCapacity = new BN(100_000_000);
+      const binCapacity = new BN(100_000_000);
       const totalCommitted = new BN(300_000_001); // Creates rounding scenarios
       
       const user1Commitment = new BN(100_000_000);
       const user2Commitment = new BN(100_000_000);
       const user3Commitment = new BN(100_000_001);
 
-      const allocationRatio = tierCapacity.mul(new BN(1_000_000_000)).div(totalCommitted);
+      const allocationRatio = binCapacity.mul(new BN(1_000_000_000)).div(totalCommitted);
       
       const user1Allocation = user1Commitment.mul(allocationRatio).div(new BN(1_000_000_000));
       const user2Allocation = user2Commitment.mul(allocationRatio).div(new BN(1_000_000_000));
@@ -281,11 +281,11 @@ describe("Edge Cases and Boundary Conditions", () => {
 
       const totalAllocated = user1Allocation.add(user2Allocation).add(user3Allocation);
 
-      // Total allocated should not exceed tier capacity
-      expect(totalAllocated.lte(tierCapacity)).to.be.true;
+      // Total allocated should not exceed bin capacity
+      expect(totalAllocated.lte(binCapacity)).to.be.true;
       
-      // But should be close to tier capacity
-      const difference = tierCapacity.sub(totalAllocated);
+      // But should be close to bin capacity
+      const difference = binCapacity.sub(totalAllocated);
       expect(difference.lt(new BN(3))).to.be.true; // Allow for rounding differences
     });
   });
@@ -379,14 +379,14 @@ describe("Edge Cases and Boundary Conditions", () => {
     });
   });
 
-  describe("Multi-Tier Edge Cases", () => {
-    it("should handle commitments across multiple tiers", async () => {
+  describe("Multi-Bin Edge Cases", () => {
+    it("should handle commitments across multiple bins", async () => {
       await waitForAuctionStart();
 
       const commitment1 = new BN(2_000_000);
       const commitment2 = new BN(3_000_000);
 
-      // Commit to first tier
+      // Commit to first bin
       await commitCtx.program.methods
         .commit(0, commitment1)
         .accounts({
@@ -401,8 +401,8 @@ describe("Edge Cases and Boundary Conditions", () => {
         .signers([commitCtx.user1])
         .rpc();
 
-      // Commit to second tier (would need different committed PDA)
-      const [user1Tier2CommittedPda] = PublicKey.findProgramAddressSync(
+      // Commit to second bin (would need different committed PDA)
+      const [user1Bin2CommittedPda] = PublicKey.findProgramAddressSync(
         [
           Buffer.from("committed"),
           commitCtx.auctionPda.toBuffer(),
@@ -417,7 +417,7 @@ describe("Edge Cases and Boundary Conditions", () => {
         .accounts({
           user: commitCtx.user1.publicKey,
           auction: commitCtx.auctionPda,
-          committed: user1Tier2CommittedPda,
+          committed: user1Bin2CommittedPda,
           userPaymentToken: commitCtx.user1PaymentToken,
           vaultPaymentToken: commitCtx.vaultPaymentToken,
           tokenProgram: TOKEN_PROGRAM_ID,
@@ -435,12 +435,12 @@ describe("Edge Cases and Boundary Conditions", () => {
       expect(vaultBalance.gte(totalCommitted)).to.be.true;
     });
 
-    it("should handle tier capacity variations", async () => {
-      // Test with tiers of very different capacities
-      const smallTierCapacity = new BN(1_000_000);
-      const largeTierCapacity = new BN(1_000_000_000);
+    it("should handle bin capacity variations", async () => {
+      // Test with bins of very different capacities
+      const smallBinCapacity = new BN(1_000_000);
+      const largeBinCapacity = new BN(1_000_000_000);
 
-      // Verify the test configuration has different tier capacities
+      // Verify the test configuration has different bin capacities
       expect(TEST_CONFIG.BINS[0].paymentTokenCap.toString()).to.not.equal(
         TEST_CONFIG.BINS[1].paymentTokenCap.toString()
       );

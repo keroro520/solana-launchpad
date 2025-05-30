@@ -483,10 +483,10 @@ export function calculateClaimableAmountSDK(
      new BN(0)).toString()
   );
   
-  const tier_cap = new BN(
+  const bin_cap = new BN(
     (auction_bin.sale_token_cap || 
      auction_bin.saleTokenCap || 
-     auction_bin.tierCap || 
+     auction_bin.binCap || 
      new BN(0)).toString()
   );
   
@@ -501,7 +501,7 @@ export function calculateClaimableAmountSDK(
   const max_sale_tokens = user_committed.div(price);
 
   // If under-subscribed, user gets full commitment
-  if (total_raised.lte(tier_cap)) {
+  if (total_raised.lte(bin_cap)) {
     return {
       saleTokens: max_sale_tokens,
       refundTokens: new BN(0)
@@ -511,7 +511,7 @@ export function calculateClaimableAmountSDK(
   // If over-subscribed, apply proportional allocation
   // Use scaling factor to maintain precision
   const scalingFactor = new BN(1_000_000_000);
-  const allocationRatio = tier_cap.mul(scalingFactor).div(total_raised);
+  const allocationRatio = bin_cap.mul(scalingFactor).div(total_raised);
   const allocatedTokens = max_sale_tokens.mul(allocationRatio).div(scalingFactor);
   const refundTokens = user_committed.sub(allocatedTokens.mul(price));
   

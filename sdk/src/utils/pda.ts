@@ -20,10 +20,30 @@ export class ResetPDA {
   }
 
   /**
-   * Find committed PDA address
-   * PDA: ["committed", auction_key, user_key, bin_id]
+   * Find committed PDA address (new architecture - no binId)
+   * PDA: ["committed", auction_key, user_key]
    */
   static findCommittedAddress(
+    auctionKey: PublicKey,
+    userKey: PublicKey,
+    programId: PublicKey
+  ): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync(
+      [
+        Buffer.from(COMMITTED_SEED),
+        auctionKey.toBuffer(),
+        userKey.toBuffer(),
+      ],
+      programId
+    );
+  }
+
+  /**
+   * Find committed PDA address (legacy architecture with binId)
+   * @deprecated Use findCommittedAddress without binId for new architecture
+   * PDA: ["committed", auction_key, user_key, bin_id]
+   */
+  static findCommittedAddressLegacy(
     auctionKey: PublicKey,
     userKey: PublicKey,
     binId: number,
@@ -121,7 +141,19 @@ export class ResetPDA {
   }
 
   /**
-   * Get user committed PDA for all bins
+   * Get user committed PDA (new architecture - single account for all bins)
+   */
+  static getUserCommittedPDA(
+    auctionKey: PublicKey,
+    userKey: PublicKey,
+    programId: PublicKey
+  ): [PublicKey, number] {
+    return this.findCommittedAddress(auctionKey, userKey, programId);
+  }
+
+  /**
+   * Get user committed PDA for all bins (legacy support)
+   * @deprecated Use getUserCommittedPDA for new architecture
    */
   static getUserCommittedPDAs(
     auctionKey: PublicKey,
@@ -130,7 +162,7 @@ export class ResetPDA {
     programId: PublicKey
   ): Array<[PublicKey, number]> {
     return binIds.map(binId =>
-      this.findCommittedAddress(auctionKey, userKey, binId, programId)
+      this.findCommittedAddressLegacy(auctionKey, userKey, binId, programId)
     );
   }
 } 

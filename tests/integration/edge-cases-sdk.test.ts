@@ -95,15 +95,15 @@ describe("Edge Cases and Boundary Conditions (SDK Version)", () => {
       }
     });
 
-    it("should handle exact tier capacity calculations using SDK", async () => {
-      // Get auction info through SDK to check tier capacities
+    it("should handle exact bin capacity calculations using SDK", async () => {
+      // Get auction info through SDK to check bin capacities
       const auctionInfo = await getAuctionInfoWithSDK(commitCtx);
-      const tierCapacity = auctionInfo.bins[0].saleTokenCap;
+      const binCapacity = auctionInfo.bins[0].saleTokenCap;
 
-      expect(tierCapacity.gt(new BN(0))).to.be.true;
-      console.log(`✓ SDK retrieved tier capacity: ${tierCapacity.toString()}`);
+      expect(binCapacity.gt(new BN(0))).to.be.true;
+      console.log(`✓ SDK retrieved bin capacity: ${binCapacity.toString()}`);
       
-      // SDK provides safer access to tier information than raw Anchor calls
+      // SDK provides safer access to bin information than raw Anchor calls
       expect(auctionInfo.bins).to.have.length(2);
       expect(auctionInfo.bins[1].saleTokenCap).to.not.be.undefined;
     });
@@ -191,13 +191,13 @@ describe("Edge Cases and Boundary Conditions (SDK Version)", () => {
   describe("Allocation Edge Cases with SDK", () => {
     it("should handle exact allocation scenarios using SDK math", async () => {
       // Test scenario where allocation exactly matches commitment
-      const tierCapacity = new BN(100_000_000);
+      const binCapacity = new BN(100_000_000);
       const totalCommitted = new BN(100_000_000); // Exact match
       const userCommitment = new BN(10_000_000);
 
       // Use SDK's calculation functions
       const mockBin = {
-        saleTokenCap: tierCapacity,
+        saleTokenCap: binCapacity,
         paymentTokenRaised: totalCommitted,
         saleTokenPrice: new BN(1_000_000), // 1:1 ratio
       };
@@ -216,12 +216,12 @@ describe("Edge Cases and Boundary Conditions (SDK Version)", () => {
     });
 
     it("should handle minimal over-subscription using SDK", async () => {
-      const tierCapacity = new BN(100_000_000);
+      const binCapacity = new BN(100_000_000);
       const totalCommitted = new BN(100_000_001); // 1 unit over
       const userCommitment = new BN(10_000_000);
 
       const mockBin = {
-        saleTokenCap: tierCapacity,
+        saleTokenCap: binCapacity,
         paymentTokenRaised: totalCommitted,
         saleTokenPrice: new BN(1_000_000),
       };
@@ -242,12 +242,12 @@ describe("Edge Cases and Boundary Conditions (SDK Version)", () => {
     });
 
     it("should handle extreme over-subscription using SDK", async () => {
-      const tierCapacity = new BN(100_000_000);
+      const binCapacity = new BN(100_000_000);
       const totalCommitted = new BN(1_000_000_000); // 10x over-subscribed
       const userCommitment = new BN(100_000_000);
 
       const mockBin = {
-        saleTokenCap: tierCapacity,
+        saleTokenCap: binCapacity,
         paymentTokenRaised: totalCommitted,
         saleTokenPrice: new BN(1_000_000),
       };
@@ -271,12 +271,12 @@ describe("Edge Cases and Boundary Conditions (SDK Version)", () => {
     });
 
     it("should handle single user scenarios using SDK", async () => {
-      const tierCapacity = new BN(100_000_000);
+      const binCapacity = new BN(100_000_000);
       const userCommitment = new BN(50_000_000); // Under-subscribed
       const totalCommitted = userCommitment;
 
       const mockBin = {
-        saleTokenCap: tierCapacity,
+        saleTokenCap: binCapacity,
         paymentTokenRaised: totalCommitted,
         saleTokenPrice: new BN(1_000_000),
       };
@@ -312,12 +312,12 @@ describe("Edge Cases and Boundary Conditions (SDK Version)", () => {
     });
 
     it("should handle very small allocation ratios using SDK", async () => {
-      const tierCapacity = new BN(1);
+      const binCapacity = new BN(1);
       const totalCommitted = new BN(1_000_000_000);
       const userCommitment = new BN(1_000_000);
 
       const mockBin = {
-        saleTokenCap: tierCapacity,
+        saleTokenCap: binCapacity,
         paymentTokenRaised: totalCommitted,
         saleTokenPrice: new BN(1_000_000),
       };
@@ -327,7 +327,7 @@ describe("Edge Cases and Boundary Conditions (SDK Version)", () => {
         mockBin
       );
 
-      // With such a small tier capacity, user allocation should be minimal
+      // With such a small bin capacity, user allocation should be minimal
       expect(saleTokens.lte(userCommitment.div(mockBin.saleTokenPrice))).to.be.true;
       expect(refundTokens.gte(new BN(0))).to.be.true;
       
@@ -335,7 +335,7 @@ describe("Edge Cases and Boundary Conditions (SDK Version)", () => {
     });
 
     it("should handle rounding edge cases using SDK", async () => {
-      const tierCapacity = new BN(100_000_000);
+      const binCapacity = new BN(100_000_000);
       const totalCommitted = new BN(300_000_001); // Creates rounding scenarios
       
       const user1Commitment = new BN(100_000_000);
@@ -343,7 +343,7 @@ describe("Edge Cases and Boundary Conditions (SDK Version)", () => {
       const user3Commitment = new BN(100_000_001);
 
       const mockBin = {
-        saleTokenCap: tierCapacity,
+        saleTokenCap: binCapacity,
         paymentTokenRaised: totalCommitted,
         saleTokenPrice: new BN(1_000_000),
       };
@@ -354,8 +354,8 @@ describe("Edge Cases and Boundary Conditions (SDK Version)", () => {
 
       const totalAllocated = result1.saleTokens.add(result2.saleTokens).add(result3.saleTokens);
 
-      // Total allocated should not exceed tier capacity
-      expect(totalAllocated.lte(tierCapacity.div(mockBin.saleTokenPrice))).to.be.true;
+      // Total allocated should not exceed bin capacity
+      expect(totalAllocated.lte(binCapacity.div(mockBin.saleTokenPrice))).to.be.true;
       
       console.log("✓ SDK rounding edge cases handled correctly");
     });

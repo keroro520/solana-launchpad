@@ -120,7 +120,6 @@ export class TransactionBuilder {
     const [committedPda] = ResetPDA.findCommittedAddress(
       params.auctionId,
       user,
-      params.binId,
       this.programId
     );
     const [vaultPaymentToken] = ResetPDA.findPaymentVaultAddress(params.auctionId, this.programId);
@@ -178,7 +177,6 @@ export class TransactionBuilder {
     const [committedPda] = ResetPDA.findCommittedAddress(
       params.auctionId,
       user,
-      params.binId,
       this.programId
     );
     const [vaultPaymentToken] = ResetPDA.findPaymentVaultAddress(params.auctionId, this.programId);
@@ -240,7 +238,6 @@ export class TransactionBuilder {
     const [committedPda] = ResetPDA.findCommittedAddress(
       params.auctionId,
       user,
-      params.binId,
       this.programId
     );
     const [vaultSaleToken] = ResetPDA.findSaleVaultAddress(params.auctionId, this.programId);
@@ -342,7 +339,6 @@ export class TransactionBuilder {
       const [committedPda] = ResetPDA.findCommittedAddress(
         params.auctionId,
         user,
-        claim.binId,
         this.programId
       );
       const [vaultSaleToken] = ResetPDA.findSaleVaultAddress(params.auctionId, this.programId);

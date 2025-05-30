@@ -10,7 +10,7 @@ export enum ResetErrorCode {
   
   // Commitment errors
   INSUFFICIENT_BALANCE = 'INSUFFICIENT_BALANCE',
-  EXCEEDS_TIER_CAP = 'EXCEEDS_TIER_CAP',
+  EXCEEDS_BIN_CAP = 'EXCEEDS_BIN_CAP',
   EXCEEDS_USER_CAP = 'EXCEEDS_USER_CAP',
   INVALID_COMMITMENT_AMOUNT = 'INVALID_COMMITMENT_AMOUNT',
   
@@ -142,7 +142,7 @@ export const ERROR_MESSAGES: Record<ResetErrorCode, string> = {
   [ResetErrorCode.AUCTION_NOT_STARTED]: 'Auction has not started yet',
   
   [ResetErrorCode.INSUFFICIENT_BALANCE]: 'Insufficient balance',
-  [ResetErrorCode.EXCEEDS_TIER_CAP]: 'Exceeds tier capacity',
+  [ResetErrorCode.EXCEEDS_BIN_CAP]: 'Exceeds bin capacity',
   [ResetErrorCode.EXCEEDS_USER_CAP]: 'Exceeds user commitment limit',
   [ResetErrorCode.INVALID_COMMITMENT_AMOUNT]: 'Invalid commitment amount',
   

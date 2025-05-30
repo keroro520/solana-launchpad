@@ -249,7 +249,7 @@ pub fn init_auction(Context{
     // INIT: auction.custody = custody
     // INIT: auction.extensions = extension_params
     // INIT: auction.vault_sale_bump and vault_payment_bump (存储 bump seeds)
-    // MSG "Auction initialized with {} tiers and vaults auto-created"
+    // MSG "Auction initialized with {} bins and vaults auto-created"
 }
 ```
 
@@ -307,7 +307,7 @@ pub fn commit(Context{
     // CHECK: payment_token_committed > 0
     // CHECK: user_payment_token ownership and mint
     // CHECK: vault_payment_token matches auction vault PDA
-    // CHECK: commitment doesn't exceed tier capacity (convert payment to sale tokens for comparison)
+    // CHECK: commitment doesn't exceed bin capacity (convert payment to sale tokens for comparison)
     
     // EMERGENCY: 检查认购操作是否被暂停
     check_emergency_state(auction, PAUSE_AUCTION_COMMIT);

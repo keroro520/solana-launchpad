@@ -81,7 +81,7 @@ describe("Unit Tests (SDK Version)", () => {
 
   describe("Allocation Algorithm Tests (SDK)", () => {
     describe("Under-subscribed scenarios with SDK", () => {
-      it("should return full commitment when tier is under-subscribed", () => {
+      it("should return full commitment when bin is under-subscribed", () => {
         const userCommitted = new BN(10_000_000); // 10M tokens
         const mockBin = {
           saleTokenCap: new BN(50_000_000), // 50M tokens capacity
@@ -128,7 +128,7 @@ describe("Unit Tests (SDK Version)", () => {
 
         const { saleTokens, refundTokens } = calculateClaimableAmountSDK(userCommitted, mockBin);
         
-        // Expected allocation: userCommitted * (tierCap / totalRaised) / price
+        // Expected allocation: userCommitted * (binCap / totalRaised) / price
         // = 20M * (50M / 100M) / 1 = 10M sale tokens
         const expectedSaleTokens = new BN(10);
         expect(saleTokens.toString()).to.equal(expectedSaleTokens.toString());
@@ -177,7 +177,7 @@ describe("Unit Tests (SDK Version)", () => {
         console.log("✓ SDK zero commitment handling successful");
       });
 
-      it("should handle zero tier capacity", () => {
+      it("should handle zero bin capacity", () => {
         const userCommitted = new BN(10_000_000);
         const mockBin = {
           saleTokenCap: new BN(0), // Zero capacity
@@ -187,12 +187,12 @@ describe("Unit Tests (SDK Version)", () => {
 
         const { saleTokens, refundTokens } = calculateClaimableAmountSDK(userCommitted, mockBin);
         
-        // When tier cap is 0, user should get 0 allocation
+        // When bin cap is 0, user should get 0 allocation
         expect(saleTokens.toString()).to.equal("0");
         // Should get full refund
         expect(refundTokens.toString()).to.equal(userCommitted.toString());
         
-        console.log("✓ SDK zero tier capacity handling successful");
+        console.log("✓ SDK zero bin capacity handling successful");
       });
 
       it("should handle very large numbers with SDK", () => {
@@ -205,7 +205,7 @@ describe("Unit Tests (SDK Version)", () => {
 
         const { saleTokens, refundTokens } = calculateClaimableAmountSDK(userCommitted, mockBin);
         
-        // Expected: user_committed * (tier_cap / total_raised) = user_committed * 0.5
+        // Expected: user_committed * (bin_cap / total_raised) = user_committed * 0.5
         const expectedSaleTokens = userCommitted.div(new BN(2)).div(mockBin.saleTokenPrice);
         expect(saleTokens.toString()).to.equal(expectedSaleTokens.toString());
         
@@ -242,7 +242,7 @@ describe("Unit Tests (SDK Version)", () => {
   });
 
   describe("Proportional Allocation Verification (SDK)", () => {
-    it("should ensure total allocations don't exceed tier capacity", () => {
+    it("should ensure total allocations don't exceed bin capacity", () => {
       const mockBin = {
         saleTokenCap: new BN(100_000_000), // 100M capacity
         paymentTokenRaised: new BN(300_000_000), // 300M raised (3x over-subscribed)
@@ -263,7 +263,7 @@ describe("Unit Tests (SDK Version)", () => {
         totalAllocated = totalAllocated.add(saleTokens);
       }
       
-      // Total allocated should not exceed tier capacity (converted to sale tokens)
+      // Total allocated should not exceed bin capacity (converted to sale tokens)
       const maxPossibleSaleTokens = mockBin.saleTokenCap.div(mockBin.saleTokenPrice);
       expect(totalAllocated.lte(maxPossibleSaleTokens)).to.be.true;
       

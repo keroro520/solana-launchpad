@@ -1,4 +1,4 @@
-use crate::errors::{ErrorHelper, ResetErrorCode};
+use crate::errors::ResetErrorCode;
 use anchor_lang::prelude::*;
 
 /// Precision factor for fixed-point arithmetic (10^9 for 9 decimal places)
@@ -12,11 +12,11 @@ pub struct AllocationRatio {
 }
 
 impl AllocationRatio {
-    /// Calculate allocation ratio for a tier
+    /// Calculate allocation ratio for a bin
     ///
     /// # Arguments
-    /// * `target_amount` - Target payment tokens to raise for this tier
-    /// * `raised_amount` - Actual payment tokens raised for this tier
+    /// * `target_amount` - Target payment tokens to raise for this bin
+    /// * `raised_amount` - Actual payment tokens raised for this bin
     ///
     /// # Returns
     /// * `Ok(AllocationRatio)` - The calculated allocation ratio
@@ -79,7 +79,7 @@ impl AllocationRatio {
     }
 }
 
-/// Calculate claimable amounts for a user in a specific tier
+/// Calculate claimable amounts for a user in a specific bin
 ///
 /// This is the main function that implements the allocation logic from the spec:
 ///
@@ -98,12 +98,12 @@ impl AllocationRatio {
 /// - User refund payment tokens = User payment tokens - User effective payment
 pub fn calculate_claimable_amounts(
     user_committed: u64,
-    tier_target: u64,
-    tier_raised: u64,
+    bin_target: u64,
+    bin_raised: u64,
     sale_token_price: u64,
 ) -> Result<ClaimableAmounts> {
-    // Calculate allocation ratio for this tier
-    let ratio = AllocationRatio::calculate(tier_target, tier_raised)?;
+    // Calculate allocation ratio for this bin
+    let ratio = AllocationRatio::calculate(bin_target, bin_raised)?;
 
     // Apply ratio to user's commitment to get effective payment amount
     let (effective_payment, refund_payment) = ratio.apply_to_commitment(user_committed)?;
@@ -157,26 +157,26 @@ impl ClaimableAmounts {
 ///
 /// # Arguments
 /// * `user_committed` - Amount of payment tokens the user committed
-/// * `tier_raised` - Total payment tokens raised in this tier
-/// * `tier_sale_tokens` - Total sale tokens allocated to this tier
+/// * `bin_raised` - Total payment tokens raised in this bin
+/// * `bin_sale_tokens` - Total sale tokens allocated to this bin
 ///
 /// # Returns
 /// * `Ok(u64)` - Sale tokens the user can claim
 /// * `Err(Error)` - If calculation fails
 pub fn calculate_claimable_amount(
     user_committed: u64,
-    tier_raised: u64,
-    tier_sale_tokens: u64,
+    bin_raised: u64,
+    bin_sale_tokens: u64,
 ) -> Result<u64> {
-    if tier_raised == 0 {
+    if bin_raised == 0 {
         return Ok(0);
     }
 
-    // Calculate user's proportional share of the tier
+    // Calculate user's proportional share of the bin
     let claimable = user_committed
-        .checked_mul(tier_sale_tokens)
+        .checked_mul(bin_sale_tokens)
         .ok_or(ResetErrorCode::MathOverflow)?
-        .checked_div(tier_raised)
+        .checked_div(bin_raised)
         .ok_or(ResetErrorCode::DivisionByZero)?;
 
     Ok(claimable)
@@ -217,12 +217,12 @@ mod tests {
     #[test]
     fn test_claimable_amounts() {
         let user_committed = 1000;
-        let tier_target = 2000;
-        let tier_raised = 3000; // 50% oversubscribed
+        let bin_target = 2000;
+        let bin_raised = 3000; // 50% oversubscribed
         let price = 10;
 
         let amounts =
-            calculate_claimable_amounts(user_committed, tier_target, tier_raised, price).unwrap();
+            calculate_claimable_amounts(user_committed, bin_target, bin_raised, price).unwrap();
 
         // Validate consistency
         amounts.validate(user_committed).unwrap();
@@ -247,5 +247,24 @@ mod tests {
         let raised = 1_000_000;
         let ratio = AllocationRatio::calculate(target, raised).unwrap();
         assert_eq!(ratio.raw_ratio(), 1000); // 0.000001 * 10^9
+    }
+
+    #[test]
+    fn test_allocation_calculation() {
+        let user_committed = 1500;
+        let bin_target = 2000;
+        let bin_raised = 3000; // 50% oversubscribed
+        let price = 10;
+
+        let result =
+            calculate_claimable_amounts(user_committed, bin_target, bin_raised, price).unwrap();
+
+        // Validate consistency
+        result.validate(user_committed).unwrap();
+
+        // Check calculations
+        assert_eq!(result.effective_payment_tokens, 1000); // 1500 * (2000/3000)
+        assert_eq!(result.refund_payment_tokens, 500); // 1500 - 1000
+        assert_eq!(result.sale_tokens, 100); // 1000 / 10
     }
 }

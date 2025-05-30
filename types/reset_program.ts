@@ -236,7 +236,7 @@ export type ResetProgram = {
     {
       "name": "commit",
       "docs": [
-        "User commits to an auction tier"
+        "User commits to an auction bin"
       ],
       "discriminator": [
         223,
@@ -637,7 +637,7 @@ export type ResetProgram = {
     {
       "name": "setPrice",
       "docs": [
-        "Admin sets new price for a tier"
+        "Admin sets new price for a bin"
       ],
       "discriminator": [
         16,
@@ -677,7 +677,7 @@ export type ResetProgram = {
     {
       "name": "withdrawFees",
       "docs": [
-        "Admin withdraws collected fees from all tiers (simplified - no bin_id)"
+        "Admin withdraws collected fees from all bins (simplified - no bin_id)"
       ],
       "discriminator": [
         198,
@@ -746,7 +746,7 @@ export type ResetProgram = {
     {
       "name": "withdrawFunds",
       "docs": [
-        "Admin withdraws funds from all auction tiers (simplified - no bin_id)"
+        "Admin withdraws funds from all auction bins (simplified - no bin_id)"
       ],
       "discriminator": [
         241,
@@ -874,6 +874,19 @@ export type ResetProgram = {
   ],
   "events": [
     {
+      "name": "committedAccountClosedEvent",
+      "discriminator": [
+        99,
+        216,
+        87,
+        242,
+        221,
+        79,
+        123,
+        30
+      ]
+    },
+    {
       "name": "emergencyControlEvent",
       "discriminator": [
         3,
@@ -985,8 +998,8 @@ export type ResetProgram = {
     },
     {
       "code": 12406,
-      "name": "exceedsTierCap",
-      "msg": "Exceeds tier cap"
+      "name": "exceedsBinCap",
+      "msg": "Exceeds bin cap"
     },
     {
       "code": 12407,
@@ -1022,21 +1035,7 @@ export type ResetProgram = {
           {
             "name": "authority",
             "docs": [
-              "Platform administrator"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "saleToken",
-            "docs": [
-              "Sale token mint (tokens being sold)"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "paymentToken",
-            "docs": [
-              "Payment token mint (tokens used for payment)"
+              "Launchpad admin"
             ],
             "type": "pubkey"
           },
@@ -1044,6 +1043,20 @@ export type ResetProgram = {
             "name": "custody",
             "docs": [
               "Custody account for special permissions"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "saleToken",
+            "docs": [
+              "Sale token mint"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "paymentToken",
+            "docs": [
+              "Payment token mint"
             ],
             "type": "pubkey"
           },
@@ -1065,7 +1078,7 @@ export type ResetProgram = {
           {
             "name": "bins",
             "docs": [
-              "Auction tiers (up to 100 tiers)"
+              "Auction bins (up to 10 bins)"
             ],
             "type": {
               "vec": {
@@ -1128,7 +1141,7 @@ export type ResetProgram = {
     {
       "name": "auctionBin",
       "docs": [
-        "Individual auction tier data"
+        "Individual auction bin data"
       ],
       "type": {
         "kind": "struct",
@@ -1136,28 +1149,28 @@ export type ResetProgram = {
           {
             "name": "saleTokenPrice",
             "docs": [
-              "Price per sale token (in payment token units)"
+              "Price per sale token (in payment tokens)"
             ],
             "type": "u64"
           },
           {
             "name": "saleTokenCap",
             "docs": [
-              "Maximum sale tokens this tier can sell"
+              "Maximum sale tokens this bin can sell"
             ],
             "type": "u64"
           },
           {
             "name": "paymentTokenRaised",
             "docs": [
-              "Payment tokens actually raised in this tier"
+              "Payment tokens actually raised in this bin"
             ],
             "type": "u64"
           },
           {
             "name": "saleTokenClaimed",
             "docs": [
-              "Sale tokens already claimed from this tier"
+              "Sale tokens already claimed from this bin"
             ],
             "type": "u64"
           }
@@ -1262,7 +1275,7 @@ export type ResetProgram = {
     {
       "name": "committed",
       "docs": [
-        "User commitment data for all auction tiers",
+        "User commitment data for all auction bins",
         "PDA: [\"committed\", auction_key, user_key]"
       ],
       "type": {
@@ -1301,6 +1314,115 @@ export type ResetProgram = {
               "PDA bump seed"
             ],
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "committedAccountClosedEvent",
+      "docs": [
+        "Event emitted when a user's Committed account is fully claimed and closed"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "userKey",
+            "docs": [
+              "User who owned the committed account"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "auctionKey",
+            "docs": [
+              "The auction this commitment was for"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "committedAccountKey",
+            "docs": [
+              "The committed account that was closed"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "rentReturned",
+            "docs": [
+              "Amount of rent returned to the user (in lamports)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "committedData",
+            "docs": [
+              "Snapshot of the committed account data at time of closure"
+            ],
+            "type": {
+              "defined": {
+                "name": "committedAccountSnapshot"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "committedAccountSnapshot",
+      "docs": [
+        "Snapshot of Committed account data for the closure event"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "docs": [
+              "Reference to the auction account"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "user",
+            "docs": [
+              "User who made the commitment"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bins",
+            "docs": [
+              "All bins this user committed to"
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "committedBin"
+                }
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "totalPaymentCommitted",
+            "docs": [
+              "Total payment tokens committed across all bins"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "totalSaleTokensClaimed",
+            "docs": [
+              "Total sale tokens claimed across all bins"
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -1368,10 +1490,6 @@ export type ResetProgram = {
       "type": {
         "kind": "struct",
         "fields": [
-          {
-            "name": "auctionId",
-            "type": "pubkey"
-          },
           {
             "name": "pauseAuctionCommit",
             "type": "bool"
