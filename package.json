@@ -14,6 +14,9 @@
     "test:watch": "ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=$HOME/.config/solana/id.json ts-mocha -p ./tsconfig.json --watch tests/**/*.test.ts",
     "test:coverage": "ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=$HOME/.config/solana/id.json nyc ts-mocha -p ./tsconfig.json tests/**/*.test.ts",
     "build": "tsc",
+    "build:sdk": "cd reset-sdk && npm run build",
+    "build:sdk:watch": "cd reset-sdk && npm run build:watch",
+    "clean:sdk": "cd reset-sdk && npm run clean",
     "lint": "eslint tests/**/*.ts",
     "format": "prettier --write tests/**/*.ts"
   },
