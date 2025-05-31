@@ -17,9 +17,9 @@ pub struct Auction {
     pub custody: Pubkey,
 
     /// Sale token mint
-    pub sale_token: Pubkey,
+    pub sale_token_mint: Pubkey,
     /// Payment token mint
-    pub payment_token: Pubkey,
+    pub payment_token_mint: Pubkey,
 
     /// Auction timing
     pub commit_start_time: i64,

@@ -1352,14 +1352,14 @@ export type ResetProgram = {
             "type": "pubkey"
           },
           {
-            "name": "saleToken",
+            "name": "saleTokenMint",
             "docs": [
               "Sale token mint"
             ],
             "type": "pubkey"
           },
           {
-            "name": "paymentToken",
+            "name": "paymentTokenMint",
             "docs": [
               "Payment token mint"
             ],

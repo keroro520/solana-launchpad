@@ -62,8 +62,8 @@ pub fn init_auction(
     *ctx.accounts.auction = Auction {
         authority: LAUNCHPAD_ADMIN,
         custody,
-        sale_token: ctx.accounts.sale_token_mint.key(),
-        payment_token: ctx.accounts.payment_token_mint.key(),
+        sale_token_mint: ctx.accounts.sale_token_mint.key(),
+        payment_token_mint: ctx.accounts.payment_token_mint.key(),
         commit_start_time,
         commit_end_time,
         claim_start_time,
@@ -755,7 +755,7 @@ pub struct Commit<'info> {
 
     #[account(
         mut,
-        constraint = user_payment_token.mint == auction.payment_token,
+        constraint = user_payment_token.mint == auction.payment_token_mint,
         constraint = user_payment_token.owner == user.key()
     )]
     pub user_payment_token: Account<'info, TokenAccount>,
@@ -821,7 +821,7 @@ pub struct Claim<'info> {
     /// User's payment token account for refunds
     #[account(
         mut,
-        constraint = user_payment_token.mint == auction.payment_token,
+        constraint = user_payment_token.mint == auction.payment_token_mint,
         constraint = user_payment_token.owner == user.key()
     )]
     pub user_payment_token: Account<'info, TokenAccount>,
