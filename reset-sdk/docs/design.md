@@ -7,6 +7,7 @@ Reset Launchpad SDK 是一个用于与 Reset Launchpad 拍卖程序交互的 Typ
 Anchor 程序：[reset_program](../programs/reset_program)
 IDL 文件：[reset_program.ts](../types/reset_program.ts)
 SDK 文件目录：[reset-sdk](../reset-sdk)
+测试文件目录：[tests](../tests)
 
 ## 设计原则
 

@@ -1,0 +1,25 @@
+{
+  "networks": {
+    "mainnet": {
+      "name": "mainnet",
+      "rpcUrl": "https://api.mainnet-beta.solana.com",
+      "programId": "PLACEHOLDER_MAINNET_PROGRAM_ID"
+    },
+    "localhost": {
+      "name": "localhost", 
+      "rpcUrl": "http://localhost:8899",
+      "programId": "PLACEHOLDER_LOCALHOST_PROGRAM_ID"
+    },
+    "devnet": {
+      "name": "devnet", 
+      "rpcUrl": "https://api.devnet.solana.com",
+      "programId": "PLACEHOLDER_DEVNET_PROGRAM_ID"
+    },
+    "testnet": {
+      "name": "testnet",
+      "rpcUrl": "https://api.testnet.solana.com", 
+      "programId": "PLACEHOLDER_TESTNET_PROGRAM_ID"
+    }
+  },
+  "defaultNetwork": "devnet"
+} 
