@@ -1,10 +1,15 @@
 // Reset Launchpad SDK - Launchpad Class
 // Main entry point for SDK initialization and auction management
-// Based on Creative Phase decisions for API design and configuration management
 
-import { Connection, PublicKey, TransactionInstruction } from '@solana/web3.js';
 import { Program, AnchorProvider } from '@coral-xyz/anchor';
 import { BN } from '@coral-xyz/anchor';
+import { Connection, PublicKey, TransactionInstruction } from '@solana/web3.js';
+
+import { Auction } from './auction';
+import { 
+  ConfigurationManager,
+  loadAndValidateConfig
+} from './config';
 import { 
   LaunchpadConstructorParams,
   InitAuctionParams,
@@ -12,14 +17,9 @@ import {
   LaunchpadConfig
 } from './types';
 import { 
-  ConfigurationManager,
-  loadAndValidateConfig
-} from './config';
-import { 
   createSDKError,
   deriveAuctionPda
 } from './utils';
-import { Auction } from './auction';
 
 // ============================================================================
 // Launchpad Class - Main SDK Entry Point
@@ -29,8 +29,6 @@ import { Auction } from './auction';
  * Launchpad is the main entry point for the Reset Launchpad SDK.
  * It manages network connections, program instances, and provides access to auction functionality.
  * 
- * Based on Creative Phase 2: Typed Interfaces with Default Handling
- * Based on Creative Phase 4: Validated Configuration with Schema Checking
  */
 export class Launchpad {
   private program: any; // Simplified for now - will be properly typed when IDL is available
@@ -47,7 +45,7 @@ export class Launchpad {
    */
   constructor(params: LaunchpadConstructorParams) {
     try {
-      // Validate and load configuration (Creative Phase 4)
+      // Validate and load configuration
       const validatedConfig = loadAndValidateConfig(params.config);
       this.configManager = new ConfigurationManager(validatedConfig);
       

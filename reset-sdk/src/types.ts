@@ -1,11 +1,11 @@
 // Reset Launchpad SDK - Type Definitions
 // Comprehensive type system based on creative phase decisions
 
-import { PublicKey, Connection, TransactionInstruction, Commitment } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
+import { PublicKey, Connection, TransactionInstruction, Commitment } from '@solana/web3.js';
 
 // ============================================================================
-// Configuration Types (Creative Phase 4: Configuration Management)
+// Configuration Types
 // ============================================================================
 
 export interface NetworkConfig {
@@ -28,7 +28,7 @@ export interface LaunchpadConfig {
 }
 
 // ============================================================================
-// API Parameter Interfaces (Creative Phase 2: API Design Patterns)
+// API Parameter Interfaces
 // ============================================================================
 
 // Launchpad constructor parameters
@@ -165,7 +165,7 @@ export interface EmergencyState {
 }
 
 // ============================================================================
-// State Management Types (Creative Phase 1: State Management)
+// State Management Types
 // ============================================================================
 
 export interface AuctionData {
@@ -198,7 +198,7 @@ export interface CacheState {
 }
 
 // ============================================================================
-// Error Handling Types (Creative Phase 3: Error Handling)
+// Error Handling Types
 // ============================================================================
 
 export interface ErrorContext {

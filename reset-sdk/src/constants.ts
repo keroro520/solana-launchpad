@@ -7,10 +7,6 @@ export const COMMITTED_SEED = "committed";
 export const VAULT_SALE_SEED = "vault_sale";
 export const VAULT_PAYMENT_SEED = "vault_payment";
 
-// Auction configuration limits
-export const MAX_BINS = 10;
-export const MIN_BINS = 1;
-
 // Default values
 export const DEFAULT_COMMITMENT = "confirmed";
 export const DEFAULT_TIMEOUT = 30000; // 30 seconds

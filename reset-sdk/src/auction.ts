@@ -1,9 +1,9 @@
 // Reset Launchpad SDK - Auction Class
-// Individual auction state management and operation handling
-// Based on Creative Phase 1: Intelligent Cache with Validation
 
+import { BN } from '@coral-xyz/anchor';
 import { PublicKey, TransactionInstruction } from '@solana/web3.js';
-import { Program, BN } from '@coral-xyz/anchor';
+
+import { ERROR_MESSAGES } from './constants';
 import {
   AuctionConstructorParams,
   AuctionData,
@@ -36,15 +36,9 @@ import {
   validateBinId,
   isAccountNotFoundError
 } from './utils';
-import { ERROR_MESSAGES, MAX_BINS } from './constants';
-
-// ============================================================================
-// Auction Class - Core Functionality with Intelligent Caching
-// ============================================================================
 
 /**
  * Auction class encapsulates all operations and state management for a single auction.
- * Implements Creative Phase 1: Intelligent Cache with Validation
  * 
  * Features:
  * - Manual caching with explicit refresh() calls
@@ -58,16 +52,12 @@ export class Auction {
   // ============================================================================
   
   private auctionKey: PublicKey;
-  private program: any; // Will be properly typed when IDL is available
+  private program: any; // Reverted to any as its structure is not yet defined by IDL
   
-  // Cache Management (Creative Phase 1: Intelligent Cache with Validation)
+  // Cache Management
   private cachedData: AuctionData | null = null;
   private lastUpdatedTime: number = 0;
   private isStale: boolean = true;
-  
-  // User committed data cache
-  private userCommittedCache = new Map<string, CommittedBin[]>();
-  private userCacheTimestamps = new Map<string, number>();
 
   // ============================================================================
   // Constructor
@@ -79,12 +69,11 @@ export class Auction {
   }
 
   // ============================================================================
-  // Cache Management (Creative Phase 1 Implementation)
+  // Cache Management
   // ============================================================================
 
   /**
    * Refreshes the auction data from the blockchain
-   * Implements Creative Phase 1: Manual refresh with validation
    */
   async refresh(): Promise<void> {
     try {
@@ -348,12 +337,7 @@ export class Auction {
    * Returns empty array if account doesn't exist (graceful handling)
    */
   async getUserCommitted(params: GetUserCommittedParams): Promise<CommittedBin[]> {
-    const userKeyStr = params.userKey.toString();
-    
-    // Return cached data if available
-    if (this.userCommittedCache.has(userKeyStr)) {
-      return [...this.userCommittedCache.get(userKeyStr)!]; // Return copy
-    }
+    // const userKeyStr = params.userKey.toString(); // Keep for error reporting - actually unused now
     
     try {
       const committedPda = this.calcUserCommittedPda({ userKey: params.userKey });
@@ -361,18 +345,12 @@ export class Auction {
       // Note: In a real implementation, this would fetch from the actual program
       const accountInfo = await this.fetchUserCommittedData(committedPda);
       const committedBins = this.parseCommittedData(accountInfo);
-      
-      // Cache the result
-      this.userCommittedCache.set(userKeyStr, committedBins);
-      this.userCacheTimestamps.set(userKeyStr, Date.now());
-      
+            
       return [...committedBins]; // Return copy
     } catch (error) {
       // Account doesn't exist - return empty array as per design
       if (isAccountNotFoundError(error)) {
         const emptyBins: CommittedBin[] = [];
-        this.userCommittedCache.set(userKeyStr, emptyBins);
-        this.userCacheTimestamps.set(userKeyStr, Date.now());
         return emptyBins;
       }
       
@@ -748,7 +726,7 @@ export class Auction {
    * Fetches auction data from the program (placeholder implementation)
    * @private
    */
-  private async fetchAuctionData(): Promise<any> {
+  private async fetchAuctionData(): Promise<unknown> {
     // Note: In a real implementation, this would fetch from the actual program
     // return await this.program.account.auction.fetch(this.auctionKey);
     throw new Error('fetchAuctionData: Real implementation requires actual program and IDL');
@@ -758,7 +736,7 @@ export class Auction {
    * Fetches user committed data from the program (placeholder implementation)
    * @private
    */
-  private async fetchUserCommittedData(committedPda: PublicKey): Promise<any> {
+  private async fetchUserCommittedData(_committedPda: PublicKey): Promise<unknown> {
     // Note: In a real implementation, this would fetch from the actual program
     // return await this.program.account.committed.fetch(committedPda);
     throw new Error('fetchUserCommittedData: Real implementation requires actual program and IDL');
@@ -768,7 +746,7 @@ export class Auction {
    * Parses auction data from account info (placeholder implementation)
    * @private
    */
-  private parseAuctionData(accountInfo: any): AuctionData {
+  private parseAuctionData(_accountInfo: unknown): AuctionData {
     // Note: In a real implementation, this would parse the actual account data
     throw new Error('parseAuctionData: Real implementation requires actual account data structure');
   }
@@ -777,7 +755,7 @@ export class Auction {
    * Parses committed data from account info (placeholder implementation)
    * @private
    */
-  private parseCommittedData(accountInfo: any): CommittedBin[] {
+  private parseCommittedData(_accountInfo: unknown): CommittedBin[] {
     // Note: In a real implementation, this would parse the actual account data
     throw new Error('parseCommittedData: Real implementation requires actual account data structure');
   }

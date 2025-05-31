@@ -1,17 +1,17 @@
 // Reset Launchpad SDK - Configuration Management
-// Based on Creative Phase 4: Validated Configuration with Schema Checking
 
 import { Connection, PublicKey, Commitment } from '@solana/web3.js';
-import { 
-  LaunchpadConfig, 
-  NetworkConfig, 
-  NetworkName 
-} from './types';
+
 import { 
   ERROR_MESSAGES, 
   DEFAULT_COMMITMENT, 
   DEFAULT_TIMEOUT 
 } from './constants';
+import { 
+  LaunchpadConfig, 
+  NetworkConfig, 
+  NetworkName 
+} from './types';
 import { 
   isValidPublicKey, 
   isValidUrl, 
