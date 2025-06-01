@@ -779,6 +779,14 @@ pub fn get_launchpad_admin() -> Result<Pubkey> {
     Ok(LAUNCHPAD_ADMIN)
 }
 
+/// Emergency control event
+#[event]
+pub struct EmergencyControlEvent {
+    pub auction: Pubkey,
+    pub authority: Pubkey,
+    pub paused_operations: u64,
+}
+
 // Context structures
 
 #[derive(Accounts)]
@@ -1078,12 +1086,4 @@ pub struct EmergencyControl<'info> {
         has_one = authority @ ResetError::OnlyLaunchpadAdmin
     )]
     pub auction: Account<'info, Auction>,
-}
-
-/// Emergency control event
-#[event]
-pub struct EmergencyControlEvent {
-    pub auction: Pubkey,
-    pub authority: Pubkey,
-    pub paused_operations: u64,
 }

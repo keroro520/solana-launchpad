@@ -24,6 +24,7 @@ import {
   WithdrawFundsParams,
   WithdrawFeesParams,
   SetPriceParams,
+  SetTimesParams,
   GetUserCommittedParams,
   CalcUserCommittedPdaParams,
   CalcUserSaleTokenAtaParams,
@@ -970,6 +971,39 @@ export class Auction {
     }
   }
 
+  /**
+   * Generates set times instruction (testing only)
+   * Only available when the program is compiled with testing feature
+   */
+  setTimes(params: SetTimesParams): TransactionInstruction {
+    try {
+      const instruction = new TransactionInstruction({
+        keys: [
+          { pubkey: this.auctionKey, isSigner: false, isWritable: true }
+        ],
+        programId: this.program.programId,
+        data: this.encodeSetTimesData(
+          params.commitStartTime,
+          params.commitEndTime,
+          params.claimStartTime
+        )
+      })
+
+      return instruction
+    } catch (error) {
+      throw createSDKError(
+        `Failed to create set times instruction: ${error instanceof Error ? error.message : String(error)}`,
+        'Auction.setTimes',
+        error instanceof Error ? error : undefined,
+        {
+          commitStartTime: params.commitStartTime.toString(),
+          commitEndTime: params.commitEndTime.toString(),
+          claimStartTime: params.claimStartTime.toString()
+        }
+      )
+    }
+  }
+
   // ============================================================================
   // Whitelist Support Methods
   // ============================================================================
@@ -1241,5 +1275,13 @@ export class Auction {
 
   private encodeSetPriceData(binId: number, newPrice: BN): Buffer {
     return Buffer.from(`setPrice:${binId}:${newPrice.toString()}`)
+  }
+
+  private encodeSetTimesData(
+    commitStartTime: number,
+    commitEndTime: number,
+    claimStartTime: number
+  ): Buffer {
+    return Buffer.from(`setTimes:${commitStartTime}:${commitEndTime}:${claimStartTime}`)
   }
 }

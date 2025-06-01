@@ -124,6 +124,13 @@ export interface SetPriceParams {
   newPrice: BN
 }
 
+// Testing operation parameters (only available when program is compiled with testing feature)
+export interface SetTimesParams {
+  commitStartTime: number
+  commitEndTime: number
+  claimStartTime: number
+}
+
 // Query method parameters
 export interface GetUserCommittedParams {
   userKey: PublicKey

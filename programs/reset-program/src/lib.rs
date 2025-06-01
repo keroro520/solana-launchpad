@@ -9,11 +9,17 @@ pub mod extensions;
 pub mod instructions;
 pub mod state;
 
+#[cfg(feature = "testing")]
+pub mod testing;
+
 pub use allocation::*;
 pub use errors::*;
 pub use extensions::*;
 pub use instructions::*;
 pub use state::*;
+
+#[cfg(feature = "testing")]
+pub use testing::*;
 
 #[program]
 pub mod reset_program {
@@ -95,5 +101,16 @@ pub mod reset_program {
     /// Get the hardcoded LaunchpadAdmin public key
     pub fn get_launchpad_admin(_ctx: Context<GetLaunchpadAdmin>) -> Result<Pubkey> {
         instructions::get_launchpad_admin()
+    }
+
+    /// Set auction times (only available in testing builds)
+    #[cfg(feature = "testing")]
+    pub fn set_times(
+        ctx: Context<SetTimes>,
+        commit_start_time: i64,
+        commit_end_time: i64,
+        claim_start_time: i64,
+    ) -> Result<()> {
+        testing::set_times(ctx, commit_start_time, commit_end_time, claim_start_time)
     }
 }
