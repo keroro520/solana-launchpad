@@ -1,9 +1,9 @@
-const tseslint = require('@typescript-eslint/eslint-plugin');
-const tsParser = require('@typescript-eslint/parser');
-const importPlugin = require('eslint-plugin-import');
-const eslintJs = require('@eslint/js');
-const prettierConfig = require('eslint-config-prettier');
-const globals = require('globals'); // For defining global variables
+const tseslint = require('@typescript-eslint/eslint-plugin')
+const tsParser = require('@typescript-eslint/parser')
+const importPlugin = require('eslint-plugin-import')
+const eslintJs = require('@eslint/js')
+const prettierConfig = require('eslint-config-prettier')
+const globals = require('globals') // For defining global variables
 
 module.exports = [
   // Base config for all files
@@ -13,12 +13,12 @@ module.exports = [
       sourceType: 'module', // Ensure this is set for all files including JS
       globals: {
         ...globals.node, // Node.js global variables
-        ...globals.es2021, // ES2021 globals
-      },
+        ...globals.es2021 // ES2021 globals
+      }
     },
     linterOptions: {
-      reportUnusedDisableDirectives: 'error',
-    },
+      reportUnusedDisableDirectives: 'error'
+    }
   },
   // JavaScript specific configurations
   {
@@ -26,8 +26,8 @@ module.exports = [
     ...eslintJs.configs.recommended,
     rules: {
       // Add any JS-specific rule overrides here
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
-    },
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }]
+    }
   },
   // TypeScript specific configurations
   {
@@ -36,23 +36,23 @@ module.exports = [
       parser: tsParser,
       parserOptions: {
         project: './tsconfig.json',
-        sourceType: 'module', // Explicitly set for TS files as well
-      },
+        sourceType: 'module' // Explicitly set for TS files as well
+      }
     },
     plugins: {
       '@typescript-eslint': tseslint,
-      'import': importPlugin,
+      import: importPlugin
     },
     settings: {
       'import/resolver': {
         node: {
           extensions: ['.js', '.jsx', '.ts', '.tsx']
-        },
+        }
         // typescript: {}, // Replaced with node resolver for now
       },
       'import/parsers': {
-        '@typescript-eslint/parser': ['.ts', '.tsx'],
-      },
+        '@typescript-eslint/parser': ['.ts', '.tsx']
+      }
     },
     rules: {
       ...tseslint.configs.recommended.rules,
@@ -61,26 +61,37 @@ module.exports = [
       'import/order': [
         'error',
         {
-          groups: ['builtin', 'external', 'internal', ['parent', 'sibling', 'index']],
+          groups: [
+            'builtin',
+            'external',
+            'internal',
+            ['parent', 'sibling', 'index']
+          ],
           'newlines-between': 'always',
           alphabetize: {
             order: 'asc',
-            caseInsensitive: true,
-          },
-        },
+            caseInsensitive: true
+          }
+        }
       ],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': [
         'warn',
-        { argsIgnorePattern: '^_.*' , varsIgnorePattern: '^_.*'},
-      ],
-    },
+        { argsIgnorePattern: '^_.*', varsIgnorePattern: '^_.*' }
+      ]
+    }
   },
   // Ignore patterns
   {
-    ignores: ['node_modules/', 'dist/', 'eslint.config.js', 'jest.config.js', 'examples/**'],
+    ignores: [
+      'node_modules/',
+      'dist/',
+      'eslint.config.js',
+      'jest.config.js',
+      'examples/**'
+    ]
   },
-  prettierConfig, // Apply Prettier config last to override styling rules
-]; 
+  prettierConfig // Apply Prettier config last to override styling rules
+]

@@ -1,6 +1,6 @@
 # Reset Program Specification
 
-## 约定                                                                           
+## 约定
 
 1. **本文档用 `$Sol` 表示原生代币，用 `$DAI` 表示发射代币，用 `$bbSol` 表示收款代币**
 2. **本文档用 commit 表示认购、用 claim 表示认领**
@@ -9,11 +9,11 @@
 
 ### 活动流程
 
-| 流程 | 内容 |
-| :--- | :--- |
-| (1) 准备阶段 | 项目方提供活动参数，创建活动募资账户，参看 [`init_auction()`](#init_auction)  |
-| (2) 认购阶段 | 用户使用 `$bbSol` 参与指定梯度的认购，参看 [`commit()`](#commit) |
-| (3) 认领阶段 | 用户认领指定梯度的代币 `$DAI`，以及未生效的 `$bbSol` （超额认购），参看 [`claim()`](#claim) |
+| 流程         | 内容                                                                                                                                                         |
+| :----------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (1) 准备阶段 | 项目方提供活动参数，创建活动募资账户，参看 [`init_auction()`](#init_auction)                                                                                 |
+| (2) 认购阶段 | 用户使用 `$bbSol` 参与指定梯度的认购，参看 [`commit()`](#commit)                                                                                             |
+| (3) 认领阶段 | 用户认领指定梯度的代币 `$DAI`，以及未生效的 `$bbSol` （超额认购），参看 [`claim()`](#claim)                                                                  |
 | (4) 提现阶段 | 管理员提现未认购完的代币 `$DAI`、募集的 `$bbSol`、合约收到的手续费 `$Sol`，参看 [`withdraw_funds()`](#withdraw_funds) 和 [`withdraw_fees()`](#withdraw_fees) |
 
 ### 活动玩法
@@ -44,39 +44,39 @@ END
 
 ## 代币概览
 
-| Token | Description |
-| :---  | :--- |
-| NativeToken | 用于支付交易手续费和 claim fee 的原生代币，即 `$Sol` |
-| SaleToken | 发射代币，即将发行的币种，如 `$DAI` |
-| PaymentToken | 收款代币，用户参与认购时支付的币种，如 `$bbSol` |
+| Token        | Description                                          |
+| :----------- | :--------------------------------------------------- |
+| NativeToken  | 用于支付交易手续费和 claim fee 的原生代币，即 `$Sol` |
+| SaleToken    | 发射代币，即将发行的币种，如 `$DAI`                  |
+| PaymentToken | 收款代币，用户参与认购时支付的币种，如 `$bbSol`      |
 
 ### 账户概览
 
-| Account   | Description |
-| :---      | :---        |
-| Launchpad | 平台账户， executable program， program 内硬编码了管理员 LaunchpadAdmin 的 pubkey，对应 Reset Launchpad 平台，只有一个。提供 `get_launchpad_admin()` 指令查询硬编码的管理员公钥 |
-| Auction   | 募资活动账户，对应此次募资活动，每次募资都会创建一个对应的 PDA 账户实例，用于存储募资信息，包括每个梯度的 "已认购的 `$bbSol` 数量"，以及金库 bump 信息。authority 字段指向硬编码的 LaunchpadAdmin |
-| Custody   | 代理账户，由私钥控制，对应 Bybit，Bybit 代理账户替站内用户发起认购和认领；可以视作特殊用户，因为它不受白名单的限制，也不受认购额度的限制，而且可以部分 claim. 在认购和认领时，检查交易是否有Custody 的 **离线授权签名**，如果有，则跳过白名单限制、认购额度限制等；目前只有一个代理账户，且没提供更改账户的指令 |
-| VaultSaleTokenAccount    | 金库的 `$DAI` 账户，PDA 账户，用于保管活动要发放的 `$DAI`，在活动创建时自动创建并转入代币 |
-| VaultPaymentTokenAccount | 金库的 `$bbSol` 账户，PDA 账户，用于保管活动募集到的 `$bbSol`，在活动创建时自动创建 |
-| UserSaleTokenAccount | 用户的 `$DAI` 账户。在 claim 时创建，用于接收认领的代币，authority = signer.key() |
-| UserPaymentTokenAccount | 用户的 `$bbSol` 账户。在 commit 时用于认购支付，authority = signer.key() |
-| Committed | 用户认购信息账户， PDA，对应用户在所有梯度的认购信息，包括各梯度的认购数额、已认领数额等，authority = signer.key() |
-| Ext. whitelist_authority | 白名单授权账户，由私钥控制，以离线签名的方式提供白名单用户授权 |
+| Account                  | Description                                                                                                                                                                                                                                                                                                     |
+| :----------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Launchpad                | 平台账户， executable program， program 内硬编码了管理员 LaunchpadAdmin 的 pubkey，对应 Reset Launchpad 平台，只有一个。提供 `get_launchpad_admin()` 指令查询硬编码的管理员公钥                                                                                                                                 |
+| Auction                  | 募资活动账户，对应此次募资活动，每次募资都会创建一个对应的 PDA 账户实例，用于存储募资信息，包括每个梯度的 "已认购的 `$bbSol` 数量"，以及金库 bump 信息。authority 字段指向硬编码的 LaunchpadAdmin                                                                                                               |
+| Custody                  | 代理账户，由私钥控制，对应 Bybit，Bybit 代理账户替站内用户发起认购和认领；可以视作特殊用户，因为它不受白名单的限制，也不受认购额度的限制，而且可以部分 claim. 在认购和认领时，检查交易是否有Custody 的 **离线授权签名**，如果有，则跳过白名单限制、认购额度限制等；目前只有一个代理账户，且没提供更改账户的指令 |
+| VaultSaleTokenAccount    | 金库的 `$DAI` 账户，PDA 账户，用于保管活动要发放的 `$DAI`，在活动创建时自动创建并转入代币                                                                                                                                                                                                                       |
+| VaultPaymentTokenAccount | 金库的 `$bbSol` 账户，PDA 账户，用于保管活动募集到的 `$bbSol`，在活动创建时自动创建                                                                                                                                                                                                                             |
+| UserSaleTokenAccount     | 用户的 `$DAI` 账户。在 claim 时创建，用于接收认领的代币，authority = signer.key()                                                                                                                                                                                                                               |
+| UserPaymentTokenAccount  | 用户的 `$bbSol` 账户。在 commit 时用于认购支付，authority = signer.key()                                                                                                                                                                                                                                        |
+| Committed                | 用户认购信息账户， PDA，对应用户在所有梯度的认购信息，包括各梯度的认购数额、已认领数额等，authority = signer.key()                                                                                                                                                                                              |
+| Ext. whitelist_authority | 白名单授权账户，由私钥控制，以离线签名的方式提供白名单用户授权                                                                                                                                                                                                                                                  |
 
 ### 指令概览
 
-| Instruction | Description |
-| :--- | :--- |
-| `init_auction` | 当准备一次募资活动时，创建一个 Auction 募资活动账户，自动创建金库 PDA 并转入初始代币 |
-| `emergency_control` | （管理员）紧急风控指令，可以暂停/恢复指定的拍卖操作，支持细粒度控制 |
-| `commit` | 用户认购，用户指定目标梯度和认购数额。合约会自动给用户创建对应的 Committed 账户，用于存储认购信息，并将相应的 `$bbSol` 从 UserPaymentTokenAccount 转入 VaultPaymentTokenAccount |
-| `decrease_commit` | 用户减少认购，用户指定目标梯度和减少认购的数额。合约更新 Committed 账户中对应梯度的认购信息，并将相应的 `$bbSol` 从 VaultPaymentTokenAccount 转出 UserPaymentTokenAccount |
-| `claim`  | 用户 **灵活认领指定梯度的指定数量的`$DAI`和`$bbSol`**。支持部分认领，用户可以指定要认领的梯度、sale token 数量和要退回的 payment token 数量 |
-| `withdraw_funds` | （管理员）提取此次活动所有梯度募集到的 `$bbSol` 和未出售的 `$DAI` |
-| `withdraw_fees` | （管理员）提取此次活动收集到的手续费 |
-| `set_price` | （管理员）修改某个梯度的认购价格 |
-| `get_launchpad_admin` | 查询硬编码的 LaunchpadAdmin 公钥 |
+| Instruction           | Description                                                                                                                                                                     |
+| :-------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `init_auction`        | 当准备一次募资活动时，创建一个 Auction 募资活动账户，自动创建金库 PDA 并转入初始代币                                                                                            |
+| `emergency_control`   | （管理员）紧急风控指令，可以暂停/恢复指定的拍卖操作，支持细粒度控制                                                                                                             |
+| `commit`              | 用户认购，用户指定目标梯度和认购数额。合约会自动给用户创建对应的 Committed 账户，用于存储认购信息，并将相应的 `$bbSol` 从 UserPaymentTokenAccount 转入 VaultPaymentTokenAccount |
+| `decrease_commit`     | 用户减少认购，用户指定目标梯度和减少认购的数额。合约更新 Committed 账户中对应梯度的认购信息，并将相应的 `$bbSol` 从 VaultPaymentTokenAccount 转出 UserPaymentTokenAccount       |
+| `claim`               | 用户 **灵活认领指定梯度的指定数量的`$DAI`和`$bbSol`**。支持部分认领，用户可以指定要认领的梯度、sale token 数量和要退回的 payment token 数量                                     |
+| `withdraw_funds`      | （管理员）提取此次活动所有梯度募集到的 `$bbSol` 和未出售的 `$DAI`                                                                                                               |
+| `withdraw_fees`       | （管理员）提取此次活动收集到的手续费                                                                                                                                            |
+| `set_price`           | （管理员）修改某个梯度的认购价格                                                                                                                                                |
+| `get_launchpad_admin` | 查询硬编码的 LaunchpadAdmin 公钥                                                                                                                                                |
 
 ## Account Data and Constraints
 
@@ -119,17 +119,17 @@ struct Auction {
 
         // extensions
         extensions: AuctionExtensions,
-        
+
         // emergency control
         emergency_state: EmergencyState,
-        
+
         // statistics
         total_participants: u64,  // 参与此次募资活动的总用户数目
         // withdrawals & fees
         unsold_sale_tokens_and_effective_payment_tokens_withdrawn: bool, // 防止重复提款
         total_fees_collected: u64,  // 累计收取的手续费
         total_fees_withdrawn: u64,  // 已提取的手续费
-        
+
         bump: u8,
     }
 }
@@ -161,7 +161,7 @@ struct EmergencyState {
 // 操作标志位定义
 pub mod emergency_flags {
     pub const PAUSE_AUCTION_COMMIT: u64        = 1 << 0;  // 0x01 - 暂停认购操作
-    pub const PAUSE_AUCTION_CLAIM: u64         = 1 << 1;  // 0x02 - 暂停认领操作  
+    pub const PAUSE_AUCTION_CLAIM: u64         = 1 << 1;  // 0x02 - 暂停认领操作
     pub const PAUSE_AUCTION_WITHDRAW_FEES: u64 = 1 << 2;  // 0x04 - 暂停提取手续费
     pub const PAUSE_AUCTION_WITHDRAW_FUNDS: u64 = 1 << 3; // 0x08 - 暂停提取资金
     pub const PAUSE_AUCTION_UPDATION: u64 = 1 << 4; // 0x10 - 暂停价格修改等更新操作
@@ -216,7 +216,7 @@ struct CommittedBin {
 // Sale Token Vault PDA
 seeds = ["vault_sale", Auction.key()]
 
-// Payment Token Vault PDA  
+// Payment Token Vault PDA
 seeds = ["vault_payment", Auction.key()]
 ```
 
@@ -247,7 +247,7 @@ pub fn init_auction(Context{
     // CHECK: sale_token_seller ownership and mint
 
     // CALC: 计算所有梯度需要的总 sale token 数量 = SUM(bin.sale_token_cap)
-    
+
     // CPI: 创建 Auction PDA 账户 ["auction", sale_token_mint]
     // CPI: 自动创建 vault_sale_token PDA 账户 ["vault_sale", auction_pda]
     // CPI: 自动创建 vault_payment_token PDA 账户 ["vault_payment", auction_pda]
@@ -277,7 +277,7 @@ pub fn emergency_control(Context{
     if params.pause_auction_withdraw_fees { new_paused_operations |= PAUSE_AUCTION_WITHDRAW_FEES; }
     if params.pause_auction_withdraw_funds { new_paused_operations |= PAUSE_AUCTION_WITHDRAW_FUNDS; }
     if params.pause_auction_updation { new_paused_operations |= PAUSE_AUCTION_UPDATION; }
-    
+
     // CPI: 更新 auction.emergency_state.paused_operations = new_paused_operations
     // EVENT: 发出 EmergencyControlEvent 事件，记录操作详情
     // MSG "Emergency control updated for auction {}: paused_operations = {}"
@@ -316,10 +316,10 @@ pub fn commit(Context{
     // CHECK: user_payment_token ownership and mint
     // CHECK: vault_payment_token matches auction vault PDA
     // CHECK: commitment doesn't exceed bin capacity (convert payment to sale tokens for comparison)
-    
+
     // EMERGENCY: 检查认购操作是否被暂停
     check_emergency_state(auction, PAUSE_AUCTION_COMMIT);
-    
+
     // EXTENSION: Validate commit cap per user (if enabled)
     // EXTENSION: Validate whitelist signature (if enabled)
     //   - 读取 Ed25519 验证指令（前一条指令）
@@ -357,10 +357,10 @@ pub fn decrease_commit(Context{
     // CHECK: payment_token_reverted > 0
     // CHECK: bin_id valid in auction
     // CHECK: committed.bins[bin_id].payment_token_committed >= payment_token_reverted
-    
+
     // EMERGENCY: 检查认购操作是否被暂停（decrease_commit 使用相同的 commit 标志位）
     check_emergency_state(auction, PAUSE_AUCTION_COMMIT);
-    
+
     // CPI: transfer payment_token_reverted from vault to user (with auction PDA signer)
     // CPI: 更新 Auction.bins[bin_id].payment_token_raised -= payment_token_reverted
     // CPI: 更新 Committed.bins[bin_id].payment_token_committed -= payment_token_reverted
@@ -397,13 +397,13 @@ pub fn claim(ctx: Context{
     // CALC: claimable_amounts using allocation algorithm for specific bin
     // CHECK: committed.bins[bin_id].sale_token_claimed + sale_token_to_claim <= claimable_amounts.sale_tokens
     // CHECK: payment_token_to_refund <= claimable_amounts.refund_payment_tokens
-    
+
     // EXTENSION: Calculate claim fee (if enabled)
     let claim_fee = calculate_claim_fee(auction, sale_token_to_claim);
-    
+
     // CPI: 更新 Committed.bins[bin_id].sale_token_claimed += sale_token_to_claim
     // CPI: 更新 Auction.bins[bin_id].sale_token_claimed += sale_token_to_claim
-    
+
     // CPI: transfer sale_token_to_claim from vault_sale_token to user_sale_token (if > 0)
     // CPI: transfer payment_token_to_refund from vault_payment_token to user_payment_token (if > 0)
 
@@ -516,6 +516,7 @@ pub fn get_launchpad_admin() -> Result<Pubkey> {
 若配置 `whitelist_authority`，则限制只有白名单授权用户才能参与认购；Custody 不受限制。
 
 **离线签名机制**：
+
 - 白名单采用 Ed25519 离线签名验证机制
 - 签名载荷包含：`user`, `auction`, `bin_id`, `payment_token_committed`, `nonce`, `expiry`
 - 使用 Anchor 二进制序列化格式，避免 JSON 依赖

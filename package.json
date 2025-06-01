@@ -18,7 +18,7 @@
     "build:sdk:watch": "cd reset-sdk && npm run build:watch",
     "clean:sdk": "cd reset-sdk && npm run clean",
     "lint": "eslint tests/**/*.ts",
-    "format": "prettier --write tests/**/*.ts"
+    "format": "prettier --write **/*.{ts,tsx,js,jsx,css,scss,json,md}"
   },
   "devDependencies": {
     "@types/chai": "^4.3.14",
@@ -30,7 +30,7 @@
     "eslint": "^8.56.0",
     "mocha": "^10.3.0",
     "nyc": "^15.1.0",
-    "prettier": "^3.2.5",
+    "prettier": "^3.5.3",
     "ts-mocha": "^10.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"

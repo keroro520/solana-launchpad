@@ -5,79 +5,91 @@ A comprehensive TypeScript SDK for interacting with the Reset Launchpad auction 
 ## 🏃‍♂️ Quick Start
 
 ```typescript
-import { Launchpad, createDefaultConfig } from 'reset-launchpad-sdk';
+import { Launchpad, createDefaultConfig } from 'reset-launchpad-sdk'
 
 // Initialize SDK
-const config = createDefaultConfig();
-const launchpad = new Launchpad({ config, network: 'devnet' });
+const config = createDefaultConfig()
+const launchpad = new Launchpad({ config, network: 'devnet' })
 
 // Get auction instance
-const auction = launchpad.getAuction({ saleTokenMint });
+const auction = launchpad.getAuction({ saleTokenMint })
 
 // Refresh auction data
-await auction.refresh();
+await auction.refresh()
 
 // Check auction status
-console.log('Commit period active:', auction.isCommitPeriodActive());
+console.log('Commit period active:', auction.isCommitPeriodActive())
 
 // Generate user operations
 const commitIx = auction.commit({
   userKey: userPublicKey,
   binId: 0,
   paymentTokenCommitted: new BN('1000000')
-});
+})
 ```
 
 ## 🔧 Core Classes
 
 ### Launchpad
+
 Main entry point for SDK initialization and network management.
 
 ```typescript
-const launchpad = new Launchpad({ config, network: 'devnet' });
+const launchpad = new Launchpad({ config, network: 'devnet' })
 
 // Network management
-await launchpad.switchNetwork('mainnet');
-const connectivity = await launchpad.testAllNetworks();
+await launchpad.switchNetwork('mainnet')
+const connectivity = await launchpad.testAllNetworks()
 
 // Auction management
-const auction = launchpad.getAuction({ saleTokenMint });
-const initIx = launchpad.initAuction({ ...params });
+const auction = launchpad.getAuction({ saleTokenMint })
+const initIx = launchpad.initAuction({ ...params })
 ```
 
 ### Auction
+
 Comprehensive auction state management with intelligent caching.
 
 ```typescript
 // Cache management
-await auction.refresh();
-const status = auction.getCacheStatus();
+await auction.refresh()
+const status = auction.getCacheStatus()
 
 // State queries (all validate cache automatically)
-const authority = auction.getAuthority();
-const bins = auction.getBins();
-const isActive = auction.isCommitPeriodActive();
+const authority = auction.getAuthority()
+const bins = auction.getBins()
+const isActive = auction.isCommitPeriodActive()
 
 // User operations
-const commitIx = auction.commit({ userKey, binId: 0, paymentTokenCommitted });
-const claimIx = auction.claim({ userKey, binId: 0, saleTokenToClaim, paymentTokenToRefund });
+const commitIx = auction.commit({ userKey, binId: 0, paymentTokenCommitted })
+const claimIx = auction.claim({
+  userKey,
+  binId: 0,
+  saleTokenToClaim,
+  paymentTokenToRefund
+})
 
 // Admin operations
-const emergencyIx = auction.emergencyControl({ authority, pauseAuctionCommit: true });
-const withdrawIx = auction.withdrawFunds({ authority });
+const emergencyIx = auction.emergencyControl({
+  authority,
+  pauseAuctionCommit: true
+})
+const withdrawIx = auction.withdrawFunds({ authority })
 ```
 
 ## 🔧 Configuration
 
 ### Basic Configuration
-```typescript
-import { createDefaultConfig } from 'reset-launchpad-sdk';
 
-const config = createDefaultConfig();
-const launchpad = new Launchpad({ config });
+```typescript
+import { createDefaultConfig } from 'reset-launchpad-sdk'
+
+const config = createDefaultConfig()
+const launchpad = new Launchpad({ config })
 ```
 
 ### Custom Configuration
+
 ```typescript
 const customConfig = {
   networks: {
@@ -95,24 +107,27 @@ const customConfig = {
     }
   },
   defaultNetwork: 'devnet'
-};
+}
 
-const launchpad = new Launchpad({ config: customConfig });
+const launchpad = new Launchpad({ config: customConfig })
 ```
 
 ## 🏗️ Development
 
 ### Building
+
 ```bash
 npm run build
 ```
 
 ### Running Examples
+
 ```bash
 node examples/basic-usage.js
 ```
 
 ### Type Checking
+
 ```bash
 npm run type-check
 ```
