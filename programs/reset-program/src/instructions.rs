@@ -29,11 +29,11 @@ pub fn init_auction(
         ResetError::OnlyLaunchpadAdmin
     );
 
-    // CHECK: timing validation, require commit_start_time <= current_time <= commit_end_time <= claim_start_time
+    // CHECK: timing validation, require current_time <= commit_start_time <= commit_end_time <= claim_start_time
     let current_time = Clock::get()?.unix_timestamp;
     require!(
-        commit_start_time <= current_time
-            && current_time <= commit_end_time
+        current_time <= commit_start_time
+            && commit_start_time <= commit_end_time
             && commit_end_time <= claim_start_time,
         ResetError::InvalidAuctionTimeRange
     );
