@@ -4,3 +4,4 @@ target/
 .anchor/
 dist/
 .yarn/
+programs/reset-program/src/consts.rs

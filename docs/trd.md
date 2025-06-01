@@ -544,6 +544,8 @@ if let Some(cap) = auction.extensions.commit_cap_per_user {
 
 ### Claim Fee Rate
 
+Precision factor = 10000.
+
 若配置，则在用户 claim 时，按 `claim_fee_rate` 基点比例收取费用，费用以 **Sale Token** 计价并累计到 `auction.total_fees_collected`。
 费用计算公式： `fee = sale_token_to_claim * claim_fee_rate / 10_000`。
 
