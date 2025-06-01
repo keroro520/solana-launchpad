@@ -37,14 +37,6 @@ impl AuctionExtensions {
         self.whitelist_authority.is_some()
     }
 
-    pub fn check_whitelist(&self, _user: &Pubkey) -> Result<()> {
-        if let Some(_whitelist_authority) = self.whitelist_authority {
-            // Whitelist check is now implemented through off-chain signature verification
-            // This method can be used for additional whitelist logic if needed
-        }
-        Ok(())
-    }
-
     /// Verify whitelist signature for commit operation
     pub fn verify_whitelist_signature(
         &self,
