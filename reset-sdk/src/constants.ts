@@ -44,6 +44,7 @@ export const ERROR_MESSAGES = {
   SIGNATURE_EXPIRED: 'Signature is past its expiry time',
   SERIALIZATION_ERROR: 'Failed to serialize whitelist payload',
   NONCE_OVERFLOW: 'Nonce value overflow',
+  INVALID_CUSTODY_AUTHORITY: 'Invalid custody authority',
 
   // Other new errors
   COMMIT_CAP_EXCEEDED: 'User commit cap exceeded',

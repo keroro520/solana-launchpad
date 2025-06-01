@@ -31,6 +31,7 @@ import {
   WhitelistPayload,
   WhitelistSignatureParams,
   WhitelistSignatureResult,
+  CustodyPayload,
   PAUSE_AUCTION_COMMIT,
   PAUSE_AUCTION_CLAIM,
   PAUSE_AUCTION_WITHDRAW_FEES,
@@ -466,15 +467,19 @@ export class Auction {
   // ============================================================================
 
   /**
-   * Creates a complete commit transaction with whitelist verification if enabled
+   * Creates a complete commit transaction with necessary verification instructions
    * Returns either a single commit instruction or both Ed25519 + commit instructions
    */
   async createCommitTransaction(
     params: CommitParams,
-    whitelistSignature?: Uint8Array
+    whitelistSignature?: Uint8Array,
+    custodySignature?: Uint8Array
   ): Promise<TransactionInstruction[]> {
     try {
       const instructions: TransactionInstruction[] = []
+
+      // Get current nonce for the user (needed for both whitelist and custody)
+      const currentNonce = await this.getUserNonce(params.userKey)
 
       // If whitelist is enabled, create Ed25519 verification instruction first
       if (this.isWhitelistEnabled()) {
@@ -492,9 +497,6 @@ export class Auction {
             'Auction.createCommitTransaction'
           )
         }
-
-        // Get current nonce for the user
-        const currentNonce = await this.getUserNonce(params.userKey)
 
         // Create whitelist payload
         const payload: WhitelistPayload = {
@@ -519,6 +521,31 @@ export class Auction {
         instructions.push(ed25519Instruction)
       }
 
+      // If custody authorization is provided, create Ed25519 verification instruction
+      if (params.custodyAuthority && custodySignature) {
+        // Create custody payload (same format as whitelist)
+        const custodyPayload: CustodyPayload = {
+          user: params.userKey,
+          auction: this.auctionKey,
+          binId: params.binId,
+          paymentTokenCommitted: params.paymentTokenCommitted,
+          nonce: currentNonce,
+          expiry: params.expiry
+        }
+
+        // Serialize payload for verification
+        const serializedCustodyPayload = this.serializeCustodyPayload(custodyPayload)
+
+        // Create Ed25519 verification instruction
+        const custodyEd25519Instruction = this.createCustodyAuthorizationInstruction(
+          params.custodyAuthority,
+          serializedCustodyPayload,
+          custodySignature
+        )
+
+        instructions.push(custodyEd25519Instruction)
+      }
+
       // Create the commit instruction
       const commitInstruction = this.commit(params)
       instructions.push(commitInstruction)
@@ -532,7 +559,8 @@ export class Auction {
         {
           userKey: params.userKey.toString(),
           binId: params.binId,
-          whitelistEnabled: this.isWhitelistEnabled()
+          whitelistEnabled: this.isWhitelistEnabled(),
+          custodyProvided: !!params.custodyAuthority
         }
       )
     }
@@ -586,6 +614,24 @@ export class Auction {
             isWritable: false
           }
         )
+      }
+
+      // Add custody authority if provided (for custody authorization)
+      if (params.custodyAuthority) {
+        keys.push({
+          pubkey: params.custodyAuthority,
+          isSigner: false,
+          isWritable: false
+        })
+
+        // Add sysvar instructions if not already added for whitelist
+        if (!whitelistEnabled) {
+          keys.push({
+            pubkey: params.sysvarInstructions || SYSVAR_INSTRUCTIONS_PUBKEY,
+            isSigner: false,
+            isWritable: false
+          })
+        }
       }
 
       // Add system program
@@ -987,6 +1033,29 @@ export class Auction {
         error instanceof Error ? error : undefined
       )
     }
+  }
+
+  /**
+   * Serializes custody authorization payload for signature generation
+   * Uses the same format as whitelist payload since custody signature has the same structure
+   */
+  serializeCustodyPayload(payload: WhitelistPayload): Uint8Array {
+    return this.serializeWhitelistPayload(payload)
+  }
+
+  /**
+   * Creates an Ed25519 verification instruction for custody authorization signature
+   */
+  createCustodyAuthorizationInstruction(
+    custodyAuthorityPublicKey: PublicKey,
+    message: Uint8Array,
+    signature: Uint8Array
+  ): TransactionInstruction {
+    return this.createEd25519VerificationInstruction(
+      custodyAuthorityPublicKey,
+      message,
+      signature
+    )
   }
 
   /**

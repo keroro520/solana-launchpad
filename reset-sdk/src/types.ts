@@ -72,6 +72,8 @@ export interface CommitParams {
   userPaymentTokenAccount?: PublicKey
   // Whitelist-related optional parameters (only needed when whitelist is enabled)
   whitelistAuthority?: PublicKey
+  // Custody-related optional parameters (only needed when custody authorization is used)
+  custodyAuthority?: PublicKey
   sysvarInstructions?: PublicKey
 }
 
@@ -166,6 +168,28 @@ export interface WhitelistSignatureResult {
   signature: number[]
   expiry: number
 }
+
+// ============================================================================
+// Custody Authorization Types
+// ============================================================================
+
+export interface CustodySignatureParams {
+  userPublicKey: PublicKey
+  auctionPublicKey: PublicKey
+  binId: number
+  paymentTokenCommitted: BN
+  currentNonce: BN
+  expiryTimestamp: BN
+  custodyAuthorityKeypair: any // Keypair type
+}
+
+export interface CustodySignatureResult {
+  signature: number[]
+  expiry: number
+}
+
+// Custody authorization payload (uses same structure as whitelist)
+export type CustodyPayload = WhitelistPayload
 
 // ============================================================================
 // Core Data Types (Based on IDL and Contract State)

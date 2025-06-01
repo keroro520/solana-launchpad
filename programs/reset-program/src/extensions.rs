@@ -49,7 +49,30 @@ impl AuctionExtensions {
         expiry: u64,
     ) -> Result<()> {
         let whitelist_authority = self.whitelist_authority.expect("Whitelist enabled checked");
+        self.verify_signature_authorization(
+            sysvar_instructions,
+            user,
+            auction,
+            bin_id,
+            payment_token_committed,
+            current_nonce,
+            expiry,
+            &whitelist_authority,
+        )
+    }
 
+    /// Generic signature verification for both whitelist and custody authorization
+    pub fn verify_signature_authorization(
+        &self,
+        sysvar_instructions: &AccountInfo,
+        user: &Pubkey,
+        auction: &Pubkey,
+        bin_id: u8,
+        payment_token_committed: u64,
+        current_nonce: u64,
+        expiry: u64,
+        expected_authority: &Pubkey,
+    ) -> Result<()> {
         // 1. Read the previous instruction (Ed25519 verification instruction)
         let ix = load_instruction_at_checked(0, sysvar_instructions)
             .map_err(|_| crate::errors::ResetError::MissingSysvarInstructions)?;
@@ -80,10 +103,10 @@ impl AuctionExtensions {
         let public_key_start = 1 + 64;
         let public_key = &data[public_key_start..public_key_start + 32];
 
-        // 4. Verify public key matches whitelist authority
+        // 4. Verify public key matches expected authority
         require!(
-            public_key == whitelist_authority.to_bytes(),
-            crate::errors::ResetError::WrongWhitelistAuthority
+            public_key == expected_authority.to_bytes(),
+            crate::errors::ResetError::Unauthorized
         );
 
         // 5. Extract and verify message

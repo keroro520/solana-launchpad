@@ -187,28 +187,42 @@ pub fn commit(
     // CHECK: commitment bin validation
     let _ = ctx.accounts.auction.get_bin(bin_id)?;
 
+    // CHECK: Custody authorization - skip restrictions if authorized by custody
+    let custody = ctx.accounts.auction.custody;
+    let is_custody_authorized = check_custody_authorization(
+        &ctx,
+        &user_key,
+        &auction_key,
+        bin_id,
+        payment_token_committed,
+        expiry,
+        custody,
+    )?;
+
     // Now get mutable reference to auction
     let auction = &mut ctx.accounts.auction;
 
-    // CHECK: Extension validations
-    auction
-        .extensions
-        .check_commit_cap_exceeded(&ctx.accounts.committed, payment_token_committed)?;
-    if auction.extensions.is_whitelist_enabled() {
-        let sysvar_instructions = ctx
-            .accounts
-            .sysvar_instructions
-            .as_ref()
-            .ok_or(ResetError::MissingSysvarInstructions)?;
-        auction.extensions.verify_whitelist_signature(
-            sysvar_instructions,
-            &user_key,
-            &auction_key,
-            bin_id,
-            payment_token_committed,
-            ctx.accounts.committed.nonce,
-            expiry,
-        )?;
+    // CHECK: Extension validations (skip if custody authorized)
+    if !is_custody_authorized {
+        auction
+            .extensions
+            .check_commit_cap_exceeded(&ctx.accounts.committed, payment_token_committed)?;
+        if auction.extensions.is_whitelist_enabled() {
+            let sysvar_instructions = ctx
+                .accounts
+                .sysvar_instructions
+                .as_ref()
+                .ok_or(ResetError::MissingSysvarInstructions)?;
+            auction.extensions.verify_whitelist_signature(
+                sysvar_instructions,
+                &user_key,
+                &auction_key,
+                bin_id,
+                payment_token_committed,
+                ctx.accounts.committed.nonce,
+                expiry,
+            )?;
+        }
     }
 
     // Initialize committed account if it's newly created
@@ -271,13 +285,61 @@ pub fn commit(
         .ok_or(ResetError::NonceOverflow)?;
 
     msg!(
-        "User {} committed {} tokens to bin {}, nonce incremented to {}",
+        "User {} committed {} tokens to bin {}, nonce incremented to {} (custody_authorized: {})",
         user_key,
         payment_token_committed,
         bin_id,
-        ctx.accounts.committed.nonce
+        ctx.accounts.committed.nonce,
+        is_custody_authorized
     );
     Ok(())
+}
+
+/// Check if the current transaction is authorized by custody account
+/// Returns true if user is custody or has valid custody signature authorization
+fn check_custody_authorization(
+    ctx: &Context<Commit>,
+    user: &Pubkey,
+    auction: &Pubkey,
+    bin_id: u8,
+    payment_token_committed: u64,
+    expiry: u64,
+    custody: Pubkey,
+) -> Result<bool> {
+    // Case 1: User is directly the custody account
+    if *user == custody {
+        return Ok(true);
+    }
+
+    // Case 2: Check for custody signature authorization (if custody_authority provided)
+    if let Some(custody_authority) = &ctx.accounts.custody_authority {
+        // Verify the custody_authority matches the stored custody account
+        require_keys_eq!(
+            custody_authority.key(),
+            custody,
+            ResetError::InvalidCustodyAuthority
+        );
+
+        // Verify custody signature using the same mechanism as whitelist
+        if let Some(sysvar_instructions) = &ctx.accounts.sysvar_instructions {
+            ctx.accounts
+                .auction
+                .extensions
+                .verify_signature_authorization(
+                    sysvar_instructions,
+                    user,
+                    auction,
+                    bin_id,
+                    payment_token_committed,
+                    ctx.accounts.committed.nonce,
+                    expiry,
+                    &custody_authority.key(),
+                )?;
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 /// User decreases a commitment (renamed from revert_commit)
@@ -813,6 +875,9 @@ pub struct Commit<'info> {
 
     /// CHECK: 白名单授权公钥，仅用于比较（只有启用白名单时才需要）
     pub whitelist_authority: Option<UncheckedAccount<'info>>,
+
+    /// CHECK: Custody authorization account (only needed when custody authorization is used)
+    pub custody_authority: Option<UncheckedAccount<'info>>,
 
     /// CHECK: sysvar instructions（只有启用白名单时才需要）
     pub sysvar_instructions: Option<UncheckedAccount<'info>>,

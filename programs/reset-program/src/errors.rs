@@ -52,7 +52,7 @@ pub enum ResetError {
     #[msg("No claim fees configured for this auction")]
     NoClaimFeesConfigured = 6402,
 
-    // Whitelist Signature Verification Errors (6500-6599)
+    // Signature Verification Errors (6500-6599)
     #[msg("Missing sysvar instructions account")]
     MissingSysvarInstructions = 6501,
     #[msg("Wrong program ID for Ed25519 instruction")]
@@ -71,6 +71,6 @@ pub enum ResetError {
     SerializationError = 6508,
     #[msg("Missing expiry timestamp for whitelist verification")]
     MissingExpiry = 6509,
-    #[msg("Missing whitelist authority account")]
-    MissingWhitelistAuthority = 6510,
+    #[msg("Invalid custody authority")]
+    InvalidCustodyAuthority = 6510,
 }
