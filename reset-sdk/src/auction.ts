@@ -1,9 +1,9 @@
 // Reset Launchpad SDK - Auction Class
 
 import { BN } from '@coral-xyz/anchor';
-import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, TransactionInstruction, Ed25519Program } from '@solana/web3.js';
 
-import { ERROR_MESSAGES } from './constants';
+import { ERROR_MESSAGES, SYSVAR_INSTRUCTIONS_PUBKEY } from './constants';
 import {
   AuctionConstructorParams,
   AuctionData,
@@ -11,6 +11,7 @@ import {
   AuctionExtensions,
   EmergencyState,
   CommittedBin,
+  CommittedData,
   CommitParams,
   DecreaseCommitParams,
   ClaimParams,
@@ -22,7 +23,15 @@ import {
   GetUserCommittedParams,
   CalcUserCommittedPdaParams,
   CalcUserSaleTokenAtaParams,
-  CalcUserPaymentTokenAtaParams
+  CalcUserPaymentTokenAtaParams,
+  WhitelistPayload,
+  WhitelistSignatureParams,
+  WhitelistSignatureResult,
+  PAUSE_AUCTION_COMMIT,
+  PAUSE_AUCTION_CLAIM,
+  PAUSE_AUCTION_WITHDRAW_FEES,
+  PAUSE_AUCTION_WITHDRAW_FUNDS,
+  PAUSE_AUCTION_UPDATION
 } from './types';
 import {
   createSDKError,
@@ -276,7 +285,7 @@ export class Auction {
   getTotalPaymentTokenRaised(): BN {
     this.validateCache();
     return this.cachedData!.bins.reduce(
-      (total, bin) => total.add(bin.paymentTokenCommitted),
+      (total, bin) => total.add(bin.paymentTokenRaised),
       new BN(0)
     );
   }
@@ -389,35 +398,164 @@ export class Auction {
     return this.isClaimPeriodActive() && !this.cachedData!.unsoldSaleTokensAndEffectivePaymentTokensWithdrawn;
   }
 
+  /**
+   * Checks if whitelist is enabled for this auction
+   */
+  isWhitelistEnabled(): boolean {
+    this.validateCache();
+    return this.cachedData!.extensions.whitelistAuthority !== undefined;
+  }
+
+  /**
+   * Gets the whitelist authority if enabled
+   */
+  getWhitelistAuthority(): PublicKey | undefined {
+    this.validateCache();
+    return this.cachedData!.extensions.whitelistAuthority;
+  }
+
+  /**
+   * Checks if commit cap per user is enabled
+   */
+  isCommitCapEnabled(): boolean {
+    this.validateCache();
+    return this.cachedData!.extensions.commitCapPerUser !== undefined;
+  }
+
+  /**
+   * Gets the commit cap per user if enabled
+   */
+  getCommitCapPerUser(): BN | undefined {
+    this.validateCache();
+    return this.cachedData!.extensions.commitCapPerUser;
+  }
+
   // ============================================================================
   // User Operation Instructions
   // ============================================================================
 
   /**
-   * Generates commit instruction
+   * Creates a complete commit transaction with whitelist verification if enabled
+   * Returns either a single commit instruction or both Ed25519 + commit instructions
+   */
+  async createCommitTransaction(
+    params: CommitParams,
+    whitelistSignature?: Uint8Array
+  ): Promise<TransactionInstruction[]> {
+    try {
+      const instructions: TransactionInstruction[] = [];
+      
+      // If whitelist is enabled, create Ed25519 verification instruction first
+      if (this.isWhitelistEnabled()) {
+        if (!whitelistSignature) {
+          throw createSDKError(
+            'Whitelist signature is required when whitelist is enabled',
+            'Auction.createCommitTransaction'
+          );
+        }
+        
+        const whitelistAuthority = this.getWhitelistAuthority();
+        if (!whitelistAuthority) {
+          throw createSDKError(
+            ERROR_MESSAGES.MISSING_WHITELIST_AUTHORITY,
+            'Auction.createCommitTransaction'
+          );
+        }
+        
+        // Get current nonce for the user
+        const currentNonce = await this.getUserNonce(params.userKey);
+        
+        // Create whitelist payload
+        const payload: WhitelistPayload = {
+          user: params.userKey,
+          auction: this.auctionKey,
+          binId: params.binId,
+          paymentTokenCommitted: params.paymentTokenCommitted,
+          nonce: currentNonce,
+          expiry: params.expiry,
+        };
+        
+        // Serialize payload for verification
+        const serializedPayload = this.serializeWhitelistPayload(payload);
+        
+        // Create Ed25519 verification instruction
+        const ed25519Instruction = this.createEd25519VerificationInstruction(
+          whitelistAuthority,
+          serializedPayload,
+          whitelistSignature
+        );
+        
+        instructions.push(ed25519Instruction);
+      }
+      
+      // Create the commit instruction
+      const commitInstruction = this.commit(params);
+      instructions.push(commitInstruction);
+      
+      return instructions;
+    } catch (error) {
+      throw createSDKError(
+        `Failed to create commit transaction: ${error instanceof Error ? error.message : String(error)}`,
+        'Auction.createCommitTransaction',
+        error instanceof Error ? error : undefined,
+        {
+          userKey: params.userKey.toString(),
+          binId: params.binId,
+          whitelistEnabled: this.isWhitelistEnabled(),
+        }
+      );
+    }
+  }
+
+  /**
+   * Generates commit instruction with optional whitelist support
    */
   commit(params: CommitParams): TransactionInstruction {
     try {
       this.validateCache();
       validateBinId(params.binId, this.cachedData!.bins.length);
       
-      // Calculate accounts
+      // Calculate required accounts
       const userPaymentTokenAccount = params.userPaymentTokenAccount || 
         this.calcUserPaymentTokenAtaSync(params.userKey);
       const vaultPaymentToken = this.calcVaultPaymentTokenPda();
       const userCommittedPda = this.calcUserCommittedPda({ userKey: params.userKey });
       
-      // Note: In a real implementation, this would use the actual program methods
+      // Base accounts for commit instruction
+      const keys = [
+        { pubkey: params.userKey, isSigner: true, isWritable: true },
+        { pubkey: this.auctionKey, isSigner: false, isWritable: true },
+        { pubkey: userCommittedPda, isSigner: false, isWritable: true },
+        { pubkey: userPaymentTokenAccount, isSigner: false, isWritable: true },
+        { pubkey: vaultPaymentToken, isSigner: false, isWritable: true },
+      ];
+      
+      // Add whitelist-related accounts if whitelist is enabled
+      const whitelistEnabled = this.isWhitelistEnabled();
+      if (whitelistEnabled) {
+        if (!params.whitelistAuthority) {
+          throw createSDKError(
+            ERROR_MESSAGES.MISSING_WHITELIST_AUTHORITY,
+            'Auction.commit'
+          );
+        }
+        
+        keys.push(
+          { pubkey: params.whitelistAuthority, isSigner: false, isWritable: false },
+          { pubkey: params.sysvarInstructions || SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false }
+        );
+      }
+      
+      // Add system program
+      keys.push(
+        { pubkey: this.program.systemProgram, isSigner: false, isWritable: false },
+        { pubkey: this.program.tokenProgram, isSigner: false, isWritable: false }
+      );
+      
       const instruction = new TransactionInstruction({
-        keys: [
-          { pubkey: this.auctionKey, isSigner: false, isWritable: true },
-          { pubkey: userCommittedPda, isSigner: false, isWritable: true },
-          { pubkey: params.userKey, isSigner: true, isWritable: false },
-          { pubkey: userPaymentTokenAccount, isSigner: false, isWritable: true },
-          { pubkey: vaultPaymentToken, isSigner: false, isWritable: true }
-        ],
+        keys,
         programId: this.program.programId,
-        data: this.encodeCommitData(params.binId, params.paymentTokenCommitted)
+        data: this.encodeCommitData(params.binId, params.paymentTokenCommitted, params.expiry)
       });
       
       return instruction;
@@ -429,7 +567,8 @@ export class Auction {
         { 
           userKey: params.userKey.toString(),
           binId: params.binId,
-          amount: params.paymentTokenCommitted.toString()
+          amount: params.paymentTokenCommitted.toString(),
+          expiry: params.expiry.toString()
         }
       );
     }
@@ -699,6 +838,125 @@ export class Auction {
   }
 
   // ============================================================================
+  // Whitelist Support Methods
+  // ============================================================================
+
+  /**
+   * Creates an Ed25519 verification instruction for whitelist signature
+   */
+  createEd25519VerificationInstruction(
+    whitelistAuthorityPublicKey: PublicKey,
+    message: Uint8Array,
+    signature: Uint8Array
+  ): TransactionInstruction {
+    return Ed25519Program.createInstructionWithPublicKey({
+      publicKey: whitelistAuthorityPublicKey.toBytes(),
+      message,
+      signature,
+    });
+  }
+
+  /**
+   * Serializes whitelist payload for signature generation
+   */
+  serializeWhitelistPayload(payload: WhitelistPayload): Uint8Array {
+    try {
+      // Note: In a real implementation, this would use Anchor's serialization
+      // For now, we'll create a simple binary format
+      const buffer = Buffer.alloc(32 + 32 + 1 + 8 + 8 + 8);
+      let offset = 0;
+      
+      // user: Pubkey (32 bytes)
+      payload.user.toBuffer().copy(buffer, offset);
+      offset += 32;
+      
+      // auction: Pubkey (32 bytes)
+      payload.auction.toBuffer().copy(buffer, offset);
+      offset += 32;
+      
+      // binId: u8 (1 byte)
+      buffer.writeUInt8(payload.binId, offset);
+      offset += 1;
+      
+      // paymentTokenCommitted: u64 (8 bytes)
+      buffer.writeBigUInt64LE(BigInt(payload.paymentTokenCommitted.toString()), offset);
+      offset += 8;
+      
+      // nonce: u64 (8 bytes)
+      buffer.writeBigUInt64LE(BigInt(payload.nonce.toString()), offset);
+      offset += 8;
+      
+      // expiry: u64 (8 bytes)
+      buffer.writeBigUInt64LE(BigInt(payload.expiry.toString()), offset);
+      
+      return new Uint8Array(buffer);
+    } catch (error) {
+      throw createSDKError(
+        ERROR_MESSAGES.SERIALIZATION_ERROR,
+        'Auction.serializeWhitelistPayload',
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
+   * Gets the current nonce for a user (requires fetching committed data)
+   */
+  async getUserNonce(userKey: PublicKey): Promise<BN> {
+    try {
+      const committedPda = this.calcUserCommittedPda({ userKey });
+      
+      // Note: In a real implementation, this would fetch from the actual program
+      const accountInfo = await this.fetchUserCommittedData(committedPda);
+      const committedData = this.parseCommittedAccountData(accountInfo);
+      
+      return committedData.nonce;
+    } catch (error) {
+      // Account doesn't exist - return nonce 0
+      if (isAccountNotFoundError(error)) {
+        return new BN(0);
+      }
+      
+      throw createSDKError(
+        `Failed to fetch user nonce: ${error instanceof Error ? error.message : String(error)}`,
+        'Auction.getUserNonce',
+        error instanceof Error ? error : undefined,
+        { userKey: userKey.toString() }
+      );
+    }
+  }
+
+  /**
+   * Validates emergency state for specific operations
+   */
+  checkEmergencyState(operation: number): boolean {
+    this.validateCache();
+    const pausedOps = this.cachedData!.emergencyState.pausedOperations;
+    return (pausedOps.toNumber() & operation) === 0; // Returns true if NOT paused
+  }
+
+  /**
+   * Checks if commit operations are paused
+   */
+  isCommitPaused(): boolean {
+    return !this.checkEmergencyState(PAUSE_AUCTION_COMMIT);
+  }
+
+  /**
+   * Checks if claim operations are paused
+   */
+  isClaimPaused(): boolean {
+    return !this.checkEmergencyState(PAUSE_AUCTION_CLAIM);
+  }
+
+  /**
+   * Checks if withdraw operations are paused
+   */
+  isWithdrawPaused(): boolean {
+    return !this.checkEmergencyState(PAUSE_AUCTION_WITHDRAW_FUNDS);
+  }
+
+  // ============================================================================
   // Private Helper Methods
   // ============================================================================
 
@@ -760,13 +1018,22 @@ export class Auction {
     throw new Error('parseCommittedData: Real implementation requires actual account data structure');
   }
 
+  /**
+   * Parses full committed account data including nonce (placeholder implementation)
+   * @private
+   */
+  private parseCommittedAccountData(_accountInfo: unknown): CommittedData {
+    // Note: In a real implementation, this would parse the actual account data
+    throw new Error('parseCommittedAccountData: Real implementation requires actual account data structure');
+  }
+
   // ============================================================================
   // Instruction Data Encoding (Placeholder Implementations)
   // ============================================================================
 
-  private encodeCommitData(binId: number, amount: BN): Buffer {
+  private encodeCommitData(binId: number, amount: BN, expiry: BN): Buffer {
     // Note: In a real implementation, this would encode according to the program's instruction format
-    return Buffer.from(`commit:${binId}:${amount.toString()}`);
+    return Buffer.from(`commit:${binId}:${amount.toString()}:${expiry.toString()}`);
   }
 
   private encodeDecreaseCommitData(binId: number, amount: BN): Buffer {

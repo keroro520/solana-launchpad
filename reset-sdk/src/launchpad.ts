@@ -322,9 +322,11 @@ export class Launchpad {
       }
     }
     
-    // Validate fee rate
-    if (params.extensions.claimFeeRate < 0 || params.extensions.claimFeeRate > 10000) {
-      throw new Error('Claim fee rate must be between 0 and 10000 basis points (0-100%)');
+    // Validate fee rate (only if specified)
+    if (params.extensions.claimFeeRate !== undefined) {
+      if (params.extensions.claimFeeRate < 0 || params.extensions.claimFeeRate > 10000) {
+        throw new Error('Claim fee rate must be between 0 and 10000 basis points (0-100%)');
+      }
     }
   }
 } 

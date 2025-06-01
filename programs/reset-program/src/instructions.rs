@@ -155,17 +155,25 @@ pub fn emergency_control(
 }
 
 /// User commits to an auction bin
-pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) -> Result<()> {
+pub fn commit(
+    ctx: Context<Commit>,
+    bin_id: u8,
+    payment_token_committed: u64,
+    expiry: u64,
+) -> Result<()> {
     // CHECK: emergency state validation
     check_emergency_state(&ctx.accounts.auction, EmergencyState::PAUSE_AUCTION_COMMIT)?;
 
     let user_key = ctx.accounts.user.key();
-    let auction = &mut ctx.accounts.auction;
+
+    // Store keys before mutably borrowing auction
+    let auction_key = ctx.accounts.auction.key();
 
     // CHECK: Timing validation
     let current_time = Clock::get()?.unix_timestamp;
     require!(
-        auction.commit_start_time <= current_time && current_time <= auction.commit_end_time,
+        ctx.accounts.auction.commit_start_time <= current_time
+            && current_time <= ctx.accounts.auction.commit_end_time,
         ResetError::OutOfCommitmentPeriod
     );
 
@@ -177,16 +185,42 @@ pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) ->
     );
 
     // CHECK: commitment bin validation
-    let _ = auction.get_bin(bin_id)?;
+    let _ = ctx.accounts.auction.get_bin(bin_id)?;
+
+    // Now get mutable reference to auction
+    let auction = &mut ctx.accounts.auction;
 
     // CHECK: Extension validations
-    auction.extensions.check_whitelist(&user_key)?;
     auction
         .extensions
         .check_commit_cap_exceeded(&ctx.accounts.committed, payment_token_committed)?;
+    if auction.extensions.is_whitelist_enabled() {
+        let sysvar_instructions = ctx
+            .accounts
+            .sysvar_instructions
+            .as_ref()
+            .ok_or(ResetError::MissingSysvarInstructions)?;
+        auction.extensions.verify_whitelist_signature(
+            sysvar_instructions,
+            &user_key,
+            &auction_key,
+            bin_id,
+            payment_token_committed,
+            ctx.accounts.committed.nonce,
+            expiry,
+        )?;
+    }
+
+    // Initialize committed account if it's newly created
+    let is_new_participant = ctx.accounts.committed.bins.is_empty();
+    if is_new_participant {
+        ctx.accounts.committed.auction = auction_key;
+        ctx.accounts.committed.user = user_key;
+        ctx.accounts.committed.nonce = 0;
+        ctx.accounts.committed.bump = ctx.bumps.committed;
+    }
 
     // Update committed account
-    let is_new_participant = ctx.accounts.committed.bins.is_empty();
     let committed_bin = ctx.accounts.committed.find_bin_mut(bin_id);
     match committed_bin {
         Some(committed_bin) => {
@@ -228,11 +262,20 @@ pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) ->
         payment_token_committed,
     )?;
 
+    // Increment nonce to prevent replay attacks (only after successful commit)
+    ctx.accounts.committed.nonce = ctx
+        .accounts
+        .committed
+        .nonce
+        .checked_add(1)
+        .ok_or(ResetError::NonceOverflow)?;
+
     msg!(
-        "User {} committed {} tokens to bin {}",
+        "User {} committed {} tokens to bin {}, nonce incremented to {}",
         user_key,
         payment_token_committed,
-        bin_id
+        bin_id,
+        ctx.accounts.committed.nonce
     );
     Ok(())
 }
@@ -737,6 +780,7 @@ pub struct InitAuction<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(bin_id: u8, payment_token_committed: u64, expiry: u64)]
 pub struct Commit<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
@@ -766,6 +810,12 @@ pub struct Commit<'info> {
         bump = auction.vault_payment_bump
     )]
     pub vault_payment_token: Account<'info, TokenAccount>,
+
+    /// CHECK: 白名单授权公钥，仅用于比较（只有启用白名单时才需要）
+    pub whitelist_authority: Option<UncheckedAccount<'info>>,
+
+    /// CHECK: sysvar instructions（只有启用白名单时才需要）
+    pub sysvar_instructions: Option<UncheckedAccount<'info>>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,

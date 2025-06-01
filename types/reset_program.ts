@@ -323,6 +323,14 @@ export type ResetProgram = {
           }
         },
         {
+          "name": "whitelistAuthority",
+          "optional": true
+        },
+        {
+          "name": "sysvarInstructions",
+          "optional": true
+        },
+        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -338,6 +346,10 @@ export type ResetProgram = {
         },
         {
           "name": "paymentTokenCommitted",
+          "type": "u64"
+        },
+        {
+          "name": "expiry",
           "type": "u64"
         }
       ]
@@ -1325,6 +1337,56 @@ export type ResetProgram = {
       "code": 12402,
       "name": "noClaimFeesConfigured",
       "msg": "No claim fees configured for this auction"
+    },
+    {
+      "code": 12501,
+      "name": "missingSysvarInstructions",
+      "msg": "Missing sysvar instructions account"
+    },
+    {
+      "code": 12502,
+      "name": "wrongProgram",
+      "msg": "Wrong program ID for Ed25519 instruction"
+    },
+    {
+      "code": 12503,
+      "name": "malformedEd25519Ix",
+      "msg": "Malformed Ed25519 instruction"
+    },
+    {
+      "code": 12504,
+      "name": "wrongWhitelistAuthority",
+      "msg": "Wrong whitelist authority"
+    },
+    {
+      "code": 12505,
+      "name": "payloadMismatch",
+      "msg": "Payload mismatch in signature verification"
+    },
+    {
+      "code": 12506,
+      "name": "signatureExpired",
+      "msg": "Signature expired"
+    },
+    {
+      "code": 12507,
+      "name": "nonceOverflow",
+      "msg": "Nonce overflow"
+    },
+    {
+      "code": 12508,
+      "name": "serializationError",
+      "msg": "Serialization error"
+    },
+    {
+      "code": 12509,
+      "name": "missingExpiry",
+      "msg": "Missing expiry timestamp for whitelist verification"
+    },
+    {
+      "code": 12510,
+      "name": "missingWhitelistAuthority",
+      "msg": "Missing whitelist authority account"
     }
   ],
   "types": [
@@ -1596,6 +1658,13 @@ export type ResetProgram = {
                 }
               }
             }
+          },
+          {
+            "name": "nonce",
+            "docs": [
+              "User's nonce for whitelist signature verification (prevents replay attacks)"
+            ],
+            "type": "u64"
           },
           {
             "name": "bump",

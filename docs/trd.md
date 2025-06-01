@@ -187,6 +187,8 @@ struct Committed {
 
         // 用户参与的所有梯度认购信息
         bins: Vec<CommittedBin>,
+        // 防重放攻击的 nonce（每次成功 commit 后递增）
+        nonce: u64,
         // PDA bump
         bump: u8,
     }
@@ -302,9 +304,11 @@ pub fn commit(Context{
     committed: UncheckedAccount, // PDA to be created if needed
     user_payment_token: TokenAccount,
     vault_payment_token: TokenAccount,
+    whitelist_authority: Option<UncheckedAccount>, // 白名单授权公钥（仅白名单启用时需要）
+    sysvar_instructions: Option<UncheckedAccount>, // 系统指令账户（仅白名单启用时需要）
     token_program: TokenProgram,
     system_program: SystemProgram,
-}, bin_id, payment_token_committed) {
+}, bin_id, payment_token_committed, expiry) {
     // CHECK: Context validation
     // CHECK: commit_start_time <= current_time <= commit_end_time <= claim_start_time
     // CHECK: bin_id valid in auction
@@ -316,7 +320,13 @@ pub fn commit(Context{
     // EMERGENCY: 检查认购操作是否被暂停
     check_emergency_state(auction, PAUSE_AUCTION_COMMIT);
     
-    // EXTENSION: Validate whitelist (if enabled)
+    // EXTENSION: Validate commit cap per user (if enabled)
+    // EXTENSION: Validate whitelist signature (if enabled)
+    //   - 读取 Ed25519 验证指令（前一条指令）
+    //   - 验证签名来自正确的白名单授权账户
+    //   - 验证签名内容包含所有关键参数（user, auction, bin_id, payment_token_committed, nonce, expiry）
+    //   - 验证签名未过期（current_time <= expiry，仅白名单启用时检查）
+    //   - 验证 nonce 防止重放攻击
 
     // CPI: 创建 Committed PDA 账户 if not existed (manual account creation with initial space for 1 bin)
     // CPI: 更新或添加 Committed 账户中的梯度信息：
@@ -324,7 +334,8 @@ pub fn commit(Context{
     //      - 如果 bin_id 不存在，则使用 realloc 扩展空间并添加新的 CommittedBin
     // CPI: 更新 Auction.bins[bin_id].payment_token_raised += payment_token_committed
     // CPI: transfer payment_token_committed from user to vault
-    // MSG "Committed {} payment tokens to bin {} by user {}"
+    // CPI: 递增 committed.nonce 防止重放攻击（仅在成功 commit 后）
+    // MSG "Committed {} payment tokens to bin {} by user {}, nonce incremented to {}"
 }
 ```
 
@@ -350,8 +361,6 @@ pub fn decrease_commit(Context{
     // EMERGENCY: 检查认购操作是否被暂停（decrease_commit 使用相同的 commit 标志位）
     check_emergency_state(auction, PAUSE_AUCTION_COMMIT);
     
-    // EXTENSION: Validate whitelist (if enabled)
-
     // CPI: transfer payment_token_reverted from vault to user (with auction PDA signer)
     // CPI: 更新 Auction.bins[bin_id].payment_token_raised -= payment_token_reverted
     // CPI: 更新 Committed.bins[bin_id].payment_token_committed -= payment_token_reverted
@@ -391,7 +400,6 @@ pub fn claim(ctx: Context{
     
     // EXTENSION: Calculate claim fee (if enabled)
     let claim_fee = calculate_claim_fee(auction, sale_token_to_claim);
-    // TODO: transfer claim fee to Auction account
     
     // CPI: 更新 Committed.bins[bin_id].sale_token_claimed += sale_token_to_claim
     // CPI: 更新 Auction.bins[bin_id].sale_token_claimed += sale_token_to_claim
@@ -507,7 +515,11 @@ pub fn get_launchpad_admin() -> Result<Pubkey> {
 
 若配置 `whitelist_authority`，则限制只有白名单授权用户才能参与认购；Custody 不受限制。
 
-在 [`commit()`](#commit) 和 [`decrease_commit()`](#decrease_commit) 时，如果用户是 Custody 账户，则跳过限制。否则需要验证白名单授权
+**离线签名机制**：
+- 白名单采用 Ed25519 离线签名验证机制
+- 签名载荷包含：`user`, `auction`, `bin_id`, `payment_token_committed`, `nonce`, `expiry`
+- 使用 Anchor 二进制序列化格式，避免 JSON 依赖
+- 客户端需要先发送 Ed25519 验证指令，然后发送 commit 指令
 
 ### 认购额度限制
 

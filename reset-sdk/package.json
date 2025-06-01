@@ -1,6 +1,6 @@
 {
   "name": "reset-launchpad-sdk",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "TypeScript SDK for Reset Launchpad auction program",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -20,7 +20,9 @@
     "auction",
     "launchpad",
     "typescript",
-    "sdk"
+    "sdk",
+    "whitelist",
+    "ed25519"
   ],
   "author": "",
   "license": "ISC",

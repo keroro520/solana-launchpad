@@ -49,8 +49,13 @@ pub mod reset_program {
     }
 
     /// User commits to an auction bin
-    pub fn commit(ctx: Context<Commit>, bin_id: u8, payment_token_committed: u64) -> Result<()> {
-        instructions::commit(ctx, bin_id, payment_token_committed)
+    pub fn commit(
+        ctx: Context<Commit>,
+        bin_id: u8,
+        payment_token_committed: u64,
+        expiry: u64,
+    ) -> Result<()> {
+        instructions::commit(ctx, bin_id, payment_token_committed, expiry)
     }
 
     /// User decreases a commitment (renamed from revert_commit)

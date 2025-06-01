@@ -63,7 +63,11 @@ export interface CommitParams {
   userKey: PublicKey;
   binId: number;
   paymentTokenCommitted: BN;
+  expiry: BN; // Required u64 timestamp parameter
   userPaymentTokenAccount?: PublicKey;
+  // Whitelist-related optional parameters (only needed when whitelist is enabled)
+  whitelistAuthority?: PublicKey;
+  sysvarInstructions?: PublicKey;
 }
 
 export interface DecreaseCommitParams {
@@ -131,14 +135,42 @@ export interface CalcUserPaymentTokenAtaParams {
 }
 
 // ============================================================================
+// Whitelist-related Types
+// ============================================================================
+
+export interface WhitelistPayload {
+  user: PublicKey;
+  auction: PublicKey;
+  binId: number;
+  paymentTokenCommitted: BN;
+  nonce: BN;
+  expiry: BN;
+}
+
+export interface WhitelistSignatureParams {
+  userPublicKey: PublicKey;
+  auctionPublicKey: PublicKey;
+  binId: number;
+  paymentTokenCommitted: BN;
+  currentNonce: BN;
+  expiryTimestamp: BN;
+  whitelistAuthorityKeypair: any; // Keypair type
+}
+
+export interface WhitelistSignatureResult {
+  signature: number[];
+  expiry: number;
+}
+
+// ============================================================================
 // Core Data Types (Based on IDL and Contract State)
 // ============================================================================
 
 export interface AuctionBin {
   saleTokenPrice: BN;
   saleTokenCap: BN;
-  paymentTokenCommitted: BN;
-  saleTokenCommitted: BN;
+  paymentTokenRaised: BN; // Updated field name to match contract
+  saleTokenClaimed: BN;   // Updated field name to match contract
 }
 
 export interface AuctionBinParams {
@@ -149,20 +181,26 @@ export interface AuctionBinParams {
 export interface CommittedBin {
   binId: number;
   paymentTokenCommitted: BN;
-  saleTokenCommitted: BN;
+  saleTokenClaimed: BN;
+  paymentTokenRefunded: BN; // New field added
 }
 
 export interface AuctionExtensions {
-  claimFeeRate: number; // Basis points (e.g., 100 = 1%)
+  whitelistAuthority?: PublicKey;  // Optional whitelist authority
+  commitCapPerUser?: BN;           // Optional user commitment cap
+  claimFeeRate?: number;           // Optional claim fee rate in basis points
 }
 
 export interface EmergencyState {
-  pauseAuctionCommit: boolean;
-  pauseAuctionClaim: boolean;
-  pauseAuctionWithdrawFees: boolean;
-  pauseAuctionWithdrawFunds: boolean;
-  pauseAuctionUpdation: boolean;
+  pausedOperations: BN; // Changed to bitmask representation
 }
+
+// Emergency operation flags (matching contract constants)
+export const PAUSE_AUCTION_COMMIT = 1 << 0;        // 0x01
+export const PAUSE_AUCTION_CLAIM = 1 << 1;         // 0x02
+export const PAUSE_AUCTION_WITHDRAW_FEES = 1 << 2; // 0x04
+export const PAUSE_AUCTION_WITHDRAW_FUNDS = 1 << 3;// 0x08
+export const PAUSE_AUCTION_UPDATION = 1 << 4;      // 0x10
 
 // ============================================================================
 // State Management Types
@@ -189,6 +227,14 @@ export interface AuctionData {
   totalFeesCollected: number;
   totalFeesWithdrawn: number;
   emergencyState: EmergencyState;
+}
+
+export interface CommittedData {
+  auction: PublicKey;
+  user: PublicKey;
+  bins: CommittedBin[];
+  nonce: BN; // New field for replay attack prevention
+  bump: number;
 }
 
 export interface CacheState {

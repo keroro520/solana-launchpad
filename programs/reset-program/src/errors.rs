@@ -51,4 +51,26 @@ pub enum ResetError {
     DoubleFundsWithdrawal = 6401,
     #[msg("No claim fees configured for this auction")]
     NoClaimFeesConfigured = 6402,
+
+    // Whitelist Signature Verification Errors (6500-6599)
+    #[msg("Missing sysvar instructions account")]
+    MissingSysvarInstructions = 6501,
+    #[msg("Wrong program ID for Ed25519 instruction")]
+    WrongProgram = 6502,
+    #[msg("Malformed Ed25519 instruction")]
+    MalformedEd25519Ix = 6503,
+    #[msg("Wrong whitelist authority")]
+    WrongWhitelistAuthority = 6504,
+    #[msg("Payload mismatch in signature verification")]
+    PayloadMismatch = 6505,
+    #[msg("Signature expired")]
+    SignatureExpired = 6506,
+    #[msg("Nonce overflow")]
+    NonceOverflow = 6507,
+    #[msg("Serialization error")]
+    SerializationError = 6508,
+    #[msg("Missing expiry timestamp for whitelist verification")]
+    MissingExpiry = 6509,
+    #[msg("Missing whitelist authority account")]
+    MissingWhitelistAuthority = 6510,
 }

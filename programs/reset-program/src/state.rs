@@ -146,13 +146,15 @@ pub struct Committed {
     pub user: Pubkey,
     /// All bins this user has committed to
     pub bins: Vec<CommittedBin>,
+    /// User's nonce for whitelist signature verification (prevents replay attacks)
+    pub nonce: u64,
     /// PDA bump seed
     pub bump: u8,
 }
 
 impl Committed {
-    pub const BASE_SPACE: usize = 8 + 32 * 2 + 4 + 1; // 77 bytes base
-    pub const SPACE_PER_BIN: usize = 1 + 8 + 8; // 17 bytes per CommittedBin
+    pub const BASE_SPACE: usize = 8 + 32 * 2 + 4 + 8 + 1; // 85 bytes base
+    pub const SPACE_PER_BIN: usize = 1 + 8 + 8 + 8; // 25 bytes per CommittedBin
 
     /// Calculate space needed for commitment with given number of bins
     pub fn space_for_bins(bin_count: usize) -> usize {
