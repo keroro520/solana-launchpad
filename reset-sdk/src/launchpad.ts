@@ -1,9 +1,9 @@
 // Reset Launchpad SDK - Launchpad Class
 // Main entry point for SDK initialization and auction management
 
-import { Program, AnchorProvider } from '@coral-xyz/anchor'
-import { BN } from '@coral-xyz/anchor'
-import { Connection, PublicKey, TransactionInstruction } from '@solana/web3.js'
+import { Program, AnchorProvider, Idl, BN } from '@coral-xyz/anchor'
+import { Connection, PublicKey, TransactionInstruction, SystemProgram, Keypair } from '@solana/web3.js'
+import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '@solana/spl-token'
 
 import { Auction } from './auction'
 import { ConfigurationManager, loadAndValidateConfig } from './config'
@@ -15,326 +15,191 @@ import {
 } from './types'
 import { createSDKError, deriveAuctionPda } from './utils'
 
-// ============================================================================
-// Launchpad Class - Main SDK Entry Point
-// ============================================================================
+// Import the IDL
+import IDL from '../../types/reset_program.json'
 
 /**
- * Launchpad is the main entry point for the Reset Launchpad SDK.
- * It manages network connections, program instances, and provides access to auction functionality.
- *
+ * Main Launchpad class for auction management
+ * Provides initialization and management functionality for Reset auctions
  */
 export class Launchpad {
-  private program: any // Simplified for now - will be properly typed when IDL is available
-  private connection: Connection
+  private config: LaunchpadConfig
+  private network: string
   private configManager: ConfigurationManager
-  private currentNetwork: string
-  private launchpadAdmin: PublicKey
-  private programId!: PublicKey // Definite assignment assertion - initialized in constructor
+  private program: Program | null = null
 
-  /**
-   * Creates a new Launchpad instance
-   *
-   * @param params - Configuration parameters with typed interface
-   */
   constructor(params: LaunchpadConstructorParams) {
-    try {
-      // Validate and load configuration
-      const validatedConfig = loadAndValidateConfig(params.config)
-      this.configManager = new ConfigurationManager(validatedConfig)
+    const { config, network } = params
+    
+    this.config = config
+    this.network = network
+    this.configManager = new ConfigurationManager(config)
 
-      // Determine network to use
-      this.currentNetwork = params.network || validatedConfig.defaultNetwork
-      this.configManager.validateNetworkExists(this.currentNetwork)
-
-      // Create connection (use provided or create new)
-      this.connection =
-        params.connection ||
-        this.configManager.createConnection(this.currentNetwork)
-
-      // Initialize program instance
-      this.initializeProgram()
-
-      // Set launchpad admin (placeholder - will be determined from program state)
-      this.launchpadAdmin = this.programId
-    } catch (error) {
-      throw createSDKError(
-        `Failed to initialize Launchpad: ${error instanceof Error ? error.message : String(error)}`,
-        'Launchpad.constructor',
-        error instanceof Error ? error : undefined
-      )
+    // Initialize program if connection is available
+    if (params.connection && params.wallet) {
+      this.initializeProgram(params.connection, params.wallet)
     }
   }
 
   /**
-   * Initializes the Anchor program instance
-   * @private
+   * Initialize the Anchor program instance
    */
-  private initializeProgram(): void {
+  private initializeProgram(connection: Connection, wallet: any): void {
     try {
-      this.programId = this.configManager.getProgramId(this.currentNetwork)
-
-      // Create a minimal provider for read-only operations
-      // Note: This SDK doesn't handle wallet management or transaction signing
-      const provider = new AnchorProvider(this.connection, {} as any, {
-        commitment: 'confirmed'
+      const provider = new AnchorProvider(connection, wallet, {
+        commitment: 'confirmed',
+        preflightCommitment: 'confirmed'
       })
 
-      // For now, store the provider and programId
-      // In a real implementation, this would use the actual IDL to create a Program instance
-      this.program = {
-        provider,
-        programId: this.programId,
-        // Placeholder methods that would be available on a real Program instance
-        account: {},
-        instruction: {},
-        rpc: {}
-      }
+      // Let Anchor read the programId from the IDL automatically
+      this.program = new Program(IDL as Idl, provider)
     } catch (error) {
-      throw createSDKError(
-        'Failed to initialize Anchor program',
-        'Launchpad.initializeProgram',
-        error instanceof Error ? error : undefined
-      )
+      console.warn('Program initialization failed:', error)
+      this.program = null
     }
   }
 
-  // ============================================================================
-  // Basic Getter Methods
-  // ============================================================================
-
   /**
-   * Gets the launchpad admin public key
+   * Initialize a new auction with proper Anchor instruction generation
    */
-  getLaunchpadAdmin(): PublicKey {
-    return this.launchpadAdmin
+  async initAuction(params: InitAuctionParams): Promise<TransactionInstruction> {
+    if (!this.program) {
+      throw createSDKError('INITIALIZATION_ERROR', 'Program not initialized. Connection and wallet required.')
+    }
+
+    try {
+      // Validate required parameters
+      if (!params.saleTokenMint || !params.paymentTokenMint) {
+        throw createSDKError('INVALID_PARAMETERS', 'Sale token mint and payment token mint are required')
+      }
+
+      if (!params.bins || params.bins.length === 0 || params.bins.length > 10) {
+        throw createSDKError('INVALID_PARAMETERS', 'Bins array must contain 1-10 bins')
+      }
+
+      // Calculate PDAs
+      const [auctionPda, auctionBump] = PublicKey.findProgramAddressSync(
+        [Buffer.from('auction'), params.saleTokenMint.toBuffer()],
+        this.program.programId
+      )
+
+      const [vaultSaleTokenPda, vaultSaleBump] = PublicKey.findProgramAddressSync(
+        [Buffer.from('vault_sale'), auctionPda.toBuffer()],
+        this.program.programId
+      )
+
+      const [vaultPaymentTokenPda, vaultPaymentBump] = PublicKey.findProgramAddressSync(
+        [Buffer.from('vault_payment'), auctionPda.toBuffer()],
+        this.program.programId
+      )
+
+      // Transform bins to match IDL structure
+      const binParams = params.bins.map(bin => ({
+        saleTokenPrice: new BN(bin.saleTokenPrice.toString()),
+        saleTokenCap: new BN(bin.saleTokenCap.toString())
+      }))
+
+      // Transform extensions to match IDL structure
+      const extensions = {
+        whitelistAuthority: params.extensions?.whitelistAuthority || null,
+        commitCapPerUser: params.extensions?.commitCapPerUser ? new BN(params.extensions.commitCapPerUser.toString()) : null,
+        claimFeeRate: params.extensions?.claimFeeRate ? new BN(params.extensions.claimFeeRate.toString()) : null
+      }
+
+      // Convert time parameters to BN
+      const commitStartTime = new BN(params.commitStartTime)
+      const commitEndTime = new BN(params.commitEndTime)
+      const claimStartTime = new BN(params.claimStartTime)
+
+      // Generate the instruction using proper Anchor methods
+      const instruction = await this.program.methods
+        .initAuction(
+          commitStartTime,
+          commitEndTime,
+          claimStartTime,
+          binParams,
+          params.custody,
+          extensions
+        )
+        .accounts({
+          authority: params.saleTokenSellerAuthority,
+          auction: auctionPda,
+          saleTokenMint: params.saleTokenMint,
+          paymentTokenMint: params.paymentTokenMint,
+          saleTokenSeller: params.saleTokenSeller,
+          saleTokenSellerAuthority: params.saleTokenSellerAuthority,
+          vaultSaleToken: vaultSaleTokenPda,
+          vaultPaymentToken: vaultPaymentTokenPda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction()
+
+      return instruction
+
+    } catch (error: any) {
+      if (error?.message?.includes('IDL')) {
+        throw createSDKError('PROGRAM_ERROR', `IDL-related error: ${error.message}`)
+      }
+      if (error?.message?.includes('SDK')) {
+        throw error // Re-throw SDK errors as-is
+      }
+      throw createSDKError('INSTRUCTION_GENERATION_ERROR', 
+        `Failed to generate init auction instruction: ${error?.message || 'Unknown error'}`)
+    }
   }
 
   /**
-   * Gets the current connection instance
+   * Get auction instance
    */
-  getConnection(): Connection {
-    return this.connection
+  getAuction(params: { saleTokenMint: PublicKey }): Auction {
+    return new Auction({
+      launchpad: this,
+      program: this.program,
+      saleTokenMint: params.saleTokenMint,
+      configManager: this.configManager
+    })
   }
 
   /**
-   * Gets the current program instance
+   * Get current network configuration
    */
-  getProgram(): Program {
+  getNetworkConfig(): NetworkConfig {
+    return this.config.networks[this.network] as NetworkConfig
+  }
+
+  /**
+   * Get program instance (for advanced use cases)
+   */
+  getProgram(): Program | null {
     return this.program
   }
 
   /**
-   * Gets the current network name
+   * Set program instance (for testing or custom setups)
    */
-  getCurrentNetwork(): string {
-    return this.currentNetwork
+  setProgram(program: Program): void {
+    this.program = program
   }
 
   /**
-   * Gets the configuration manager
+   * Validate configuration
    */
-  getConfigManager(): ConfigurationManager {
-    return this.configManager
-  }
-
-  /**
-   * Gets the program ID for the current network
-   */
-  getProgramId(): PublicKey {
-    return this.programId
-  }
-
-  // ============================================================================
-  // Auction Management Methods
-  // ============================================================================
-
-  /**
-   * Creates an Auction instance for a given sale token mint
-   *
-   * @param params - Parameters with sale token mint
-   * @returns Auction instance for managing the specific auction
-   */
-  getAuction(params: { saleTokenMint: PublicKey }): Auction {
+  validateConfig(): boolean {
     try {
-      // Derive the auction PDA
-      const programId = this.getProgramId()
-      const [auctionPda] = deriveAuctionPda(programId, params.saleTokenMint)
-
-      // Create and return Auction instance
-      return new Auction({
-        auctionPda,
-        program: this.program
-      })
+      // Basic validation of configuration structure
+      if (!this.config || !this.config.networks) {
+        return false
+      }
+      
+      const networkConfig = this.config.networks[this.network] as NetworkConfig
+      if (!networkConfig || !networkConfig.programId) {
+        return false
+      }
+      
+      return true
     } catch (error) {
-      throw createSDKError(
-        `Failed to create Auction instance: ${error instanceof Error ? error.message : String(error)}`,
-        'Launchpad.getAuction',
-        error instanceof Error ? error : undefined,
-        { saleTokenMint: params.saleTokenMint.toString() }
-      )
-    }
-  }
-
-  /**
-   * Generates a transaction instruction to initialize a new auction
-   *
-   * @param params - Auction initialization parameters
-   * @returns Transaction instruction for auction initialization
-   */
-  initAuction(params: InitAuctionParams): TransactionInstruction {
-    try {
-      // Validate parameters
-      this.validateInitAuctionParams(params)
-
-      // Derive necessary PDAs
-      const programId = this.getProgramId()
-      const [auctionPda] = deriveAuctionPda(programId, params.saleTokenMint)
-
-      // Note: In a real implementation, this would use the actual program methods
-      // For now, we'll create a placeholder instruction
-      const instruction = new TransactionInstruction({
-        keys: [
-          { pubkey: auctionPda, isSigner: false, isWritable: true },
-          { pubkey: params.saleTokenMint, isSigner: false, isWritable: false },
-          {
-            pubkey: params.paymentTokenMint,
-            isSigner: false,
-            isWritable: false
-          },
-          { pubkey: params.custody, isSigner: false, isWritable: false },
-          {
-            pubkey: params.saleTokenSeller,
-            isSigner: false,
-            isWritable: false
-          },
-          {
-            pubkey: params.saleTokenSellerAuthority,
-            isSigner: true,
-            isWritable: false
-          }
-        ],
-        programId,
-        data: Buffer.from('initAuction') // Placeholder data
-      })
-
-      return instruction
-    } catch (error) {
-      throw createSDKError(
-        `Failed to create auction initialization instruction: ${error instanceof Error ? error.message : String(error)}`,
-        'Launchpad.initAuction',
-        error instanceof Error ? error : undefined,
-        {
-          saleTokenMint: params.saleTokenMint.toString(),
-          paymentTokenMint: params.paymentTokenMint.toString()
-        }
-      )
-    }
-  }
-
-  // ============================================================================
-  // Network Management Methods
-  // ============================================================================
-
-  /**
-   * Switches to a different network
-   *
-   * @param networkName - Name of the network to switch to
-   */
-  async switchNetwork(networkName: string): Promise<void> {
-    try {
-      // Validate network exists
-      this.configManager.validateNetworkExists(networkName)
-
-      // Test connectivity
-      const isReachable = await this.configManager.testConnectivity()
-
-      if (!isReachable[networkName]) {
-        throw new Error(`Network ${networkName} is not reachable`)
-      }
-
-      // Update current network and reinitialize
-      this.currentNetwork = networkName
-      this.connection = this.configManager.createConnection(networkName)
-      this.initializeProgram()
-    } catch (error) {
-      throw createSDKError(
-        `Failed to switch network to ${networkName}: ${error instanceof Error ? error.message : String(error)}`,
-        'Launchpad.switchNetwork',
-        error instanceof Error ? error : undefined,
-        { targetNetwork: networkName, currentNetwork: this.currentNetwork }
-      )
-    }
-  }
-
-  /**
-   * Tests connectivity to all configured networks
-   */
-  async testAllNetworks(): Promise<Record<string, boolean>> {
-    return this.configManager.testConnectivity()
-  }
-
-  /**
-   * Gets all available network names
-   */
-  getAvailableNetworks(): string[] {
-    return this.configManager.getAvailableNetworks()
-  }
-
-  // ============================================================================
-  // Validation Methods
-  // ============================================================================
-
-  /**
-   * Validates auction initialization parameters
-   * @private
-   */
-  private validateInitAuctionParams(params: InitAuctionParams): void {
-    // Validate timing
-    const now = Math.floor(Date.now() / 1000)
-
-    if (params.commitStartTime <= now) {
-      throw new Error('Commit start time must be in the future')
-    }
-
-    if (params.commitEndTime <= params.commitStartTime) {
-      throw new Error('Commit end time must be after commit start time')
-    }
-
-    if (params.claimStartTime <= params.commitEndTime) {
-      throw new Error('Claim start time must be after commit end time')
-    }
-
-    // Validate bins
-    if (!params.bins || params.bins.length === 0) {
-      throw new Error('At least one bin is required')
-    }
-
-    if (params.bins.length > 10) {
-      throw new Error('Maximum 10 bins allowed')
-    }
-
-    // Validate bin parameters
-    for (let i = 0; i < params.bins.length; i++) {
-      const bin = params.bins[i]
-      if (bin.saleTokenPrice.lte(new BN(0))) {
-        throw new Error(`Bin ${i}: Sale token price must be positive`)
-      }
-      if (bin.saleTokenCap.lte(new BN(0))) {
-        throw new Error(`Bin ${i}: Sale token cap must be positive`)
-      }
-    }
-
-    // Validate fee rate (only if specified)
-    if (params.extensions.claimFeeRate !== undefined) {
-      if (
-        params.extensions.claimFeeRate < 0 ||
-        params.extensions.claimFeeRate > 10000
-      ) {
-        throw new Error(
-          'Claim fee rate must be between 0 and 10000 basis points (0-100%)'
-        )
-      }
+      return false
     }
   }
 }

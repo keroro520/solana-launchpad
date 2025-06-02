@@ -1,11 +1,13 @@
 // Reset Launchpad SDK - Auction Class
 
-import { BN } from '@coral-xyz/anchor'
+import { BN, Program } from '@coral-xyz/anchor'
 import {
   PublicKey,
   TransactionInstruction,
-  Ed25519Program
+  Ed25519Program,
+  SystemProgram
 } from '@solana/web3.js'
+import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '@solana/spl-token'
 
 import { ERROR_MESSAGES, SYSVAR_INSTRUCTIONS_PUBKEY } from './constants'
 import {
@@ -67,7 +69,7 @@ export class Auction {
   // ============================================================================
 
   private auctionKey: PublicKey
-  private program: any // Reverted to any as its structure is not yet defined by IDL
+  private program: Program<any> // Now properly typed as Anchor Program
 
   // Cache Management
   private cachedData: AuctionData | null = null
@@ -548,7 +550,7 @@ export class Auction {
       }
 
       // Create the commit instruction
-      const commitInstruction = this.commit(params)
+      const commitInstruction = await this.commit(params)
       instructions.push(commitInstruction)
 
       return instructions
@@ -568,9 +570,9 @@ export class Auction {
   }
 
   /**
-   * Generates commit instruction with optional whitelist support
+   * Generates commit instruction using proper Anchor methods
    */
-  commit(params: CommitParams): TransactionInstruction {
+  async commit(params: CommitParams): Promise<TransactionInstruction> {
     try {
       this.validateCache()
       validateBinId(params.binId, this.cachedData!.bins.length)
@@ -578,86 +580,32 @@ export class Auction {
       // Calculate required accounts
       const userPaymentTokenAccount =
         params.userPaymentTokenAccount ||
-        this.calcUserPaymentTokenAtaSync(params.userKey)
+        await this.calcUserPaymentTokenAtaSync(params.userKey)
       const vaultPaymentToken = this.calcVaultPaymentTokenPda()
       const userCommittedPda = this.calcUserCommittedPda({
         userKey: params.userKey
       })
 
-      // Base accounts for commit instruction
-      const keys = [
-        { pubkey: params.userKey, isSigner: true, isWritable: true },
-        { pubkey: this.auctionKey, isSigner: false, isWritable: true },
-        { pubkey: userCommittedPda, isSigner: false, isWritable: true },
-        { pubkey: userPaymentTokenAccount, isSigner: false, isWritable: true },
-        { pubkey: vaultPaymentToken, isSigner: false, isWritable: true }
-      ]
-
-      // Add whitelist-related accounts if whitelist is enabled
-      const whitelistEnabled = this.isWhitelistEnabled()
-      if (whitelistEnabled) {
-        if (!params.whitelistAuthority) {
-          throw createSDKError(
-            ERROR_MESSAGES.MISSING_WHITELIST_AUTHORITY,
-            'Auction.commit'
-          )
-        }
-
-        keys.push(
-          {
-            pubkey: params.whitelistAuthority,
-            isSigner: false,
-            isWritable: false
-          },
-          {
-            pubkey: params.sysvarInstructions || SYSVAR_INSTRUCTIONS_PUBKEY,
-            isSigner: false,
-            isWritable: false
-          }
-        )
-      }
-
-      // Add custody authority if provided (for custody authorization)
-      if (params.custodyAuthority) {
-        keys.push({
-          pubkey: params.custodyAuthority,
-          isSigner: false,
-          isWritable: false
-        })
-
-        // Add sysvar instructions if not already added for whitelist
-        if (!whitelistEnabled) {
-          keys.push({
-            pubkey: params.sysvarInstructions || SYSVAR_INSTRUCTIONS_PUBKEY,
-            isSigner: false,
-            isWritable: false
-          })
-        }
-      }
-
-      // Add system program
-      keys.push(
-        {
-          pubkey: this.program.systemProgram,
-          isSigner: false,
-          isWritable: false
-        },
-        {
-          pubkey: this.program.tokenProgram,
-          isSigner: false,
-          isWritable: false
-        }
-      )
-
-      const instruction = new TransactionInstruction({
-        keys,
-        programId: this.program.programId,
-        data: this.encodeCommitData(
+      // Build instruction using proper Anchor methods
+      const instruction = await this.program.methods
+        .commit(
           params.binId,
           params.paymentTokenCommitted,
           params.expiry
         )
-      })
+        .accounts({
+          user: params.userKey,
+          auction: this.auctionKey,
+          committed: userCommittedPda,
+          userPaymentToken: userPaymentTokenAccount,
+          vaultPaymentToken: vaultPaymentToken,
+          whitelistAuthority: params.whitelistAuthority || null,
+          custodyAuthority: params.custodyAuthority || null,
+          sysvarInstructions: params.sysvarInstructions || null,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction()
 
       return instruction
     } catch (error) {
@@ -972,22 +920,22 @@ export class Auction {
   }
 
   /**
-   * Generates set times instruction (testing only)
+   * Generates set times instruction using proper Anchor methods (testing only)
    * Only available when the program is compiled with testing feature
    */
-  setTimes(params: SetTimesParams): TransactionInstruction {
+  async setTimes(params: SetTimesParams): Promise<TransactionInstruction> {
     try {
-      const instruction = new TransactionInstruction({
-        keys: [
-          { pubkey: this.auctionKey, isSigner: false, isWritable: true }
-        ],
-        programId: this.program.programId,
-        data: this.encodeSetTimesData(
-          params.commitStartTime,
-          params.commitEndTime,
-          params.claimStartTime
+      // Build instruction using proper Anchor methods
+      const instruction = await this.program.methods
+        .setTimes(
+          new BN(params.commitStartTime),
+          new BN(params.commitEndTime),
+          new BN(params.claimStartTime)
         )
-      })
+        .accounts({
+          auction: this.auctionKey,
+        })
+        .instruction()
 
       return instruction
     } catch (error) {
@@ -1157,20 +1105,20 @@ export class Auction {
    * Synchronous version of calcUserSaleTokenAta for use in instruction building
    * @private
    */
-  private calcUserSaleTokenAtaSync(userKey: PublicKey): PublicKey {
-    // Note: In a real implementation, this would derive the ATA synchronously
-    // For now, we'll return a placeholder
-    return userKey // Placeholder
+  private async calcUserSaleTokenAtaSync(userKey: PublicKey): Promise<PublicKey> {
+    this.validateCache()
+    // Use proper ATA derivation
+    return await deriveUserSaleTokenAta(userKey, this.cachedData!.saleTokenMint)
   }
 
   /**
    * Synchronous version of calcUserPaymentTokenAta for use in instruction building
    * @private
    */
-  private calcUserPaymentTokenAtaSync(userKey: PublicKey): PublicKey {
-    // Note: In a real implementation, this would derive the ATA synchronously
-    // For now, we'll return a placeholder
-    return userKey // Placeholder
+  private async calcUserPaymentTokenAtaSync(userKey: PublicKey): Promise<PublicKey> {
+    this.validateCache()
+    // Use proper ATA derivation
+    return await deriveUserPaymentTokenAta(userKey, this.cachedData!.paymentTokenMint)
   }
 
   /**

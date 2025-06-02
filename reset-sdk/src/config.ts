@@ -292,7 +292,7 @@ export function createDefaultConfig(): LaunchpadConfig {
       devnet: {
         name: 'devnet',
         rpcUrl: 'https://api.devnet.solana.com',
-        programId: 'PLACEHOLDER_DEVNET_PROGRAM_ID',
+        programId: '5dhQapnBy7pXnuPR9fTbgvFt4SsZCWiwQ4qtMEVSMDvZ',
         cluster: 'devnet',
         commitment: DEFAULT_COMMITMENT,
         timeout: DEFAULT_TIMEOUT
@@ -300,7 +300,7 @@ export function createDefaultConfig(): LaunchpadConfig {
       localhost: {
         name: 'localhost',
         rpcUrl: 'http://localhost:8899',
-        programId: 'PLACEHOLDER_LOCALHOST_PROGRAM_ID',
+        programId: '5dhQapnBy7pXnuPR9fTbgvFt4SsZCWiwQ4qtMEVSMDvZ',
         cluster: 'localnet',
         commitment: DEFAULT_COMMITMENT,
         timeout: DEFAULT_TIMEOUT

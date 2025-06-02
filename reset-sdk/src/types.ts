@@ -39,14 +39,21 @@ export interface LaunchpadConfig {
 // Launchpad constructor parameters
 export interface LaunchpadConstructorParams {
   config: LaunchpadConfig
-  network?: string
+  network: string
   connection?: Connection
+  wallet?: {
+    publicKey: PublicKey
+    signTransaction: <T extends any>(tx: T) => Promise<T>
+    signAllTransactions: <T extends any>(txs: T[]) => Promise<T[]>
+  }
 }
 
 // Auction constructor parameters
 export interface AuctionConstructorParams {
-  auctionPda: PublicKey
+  launchpad: any // Reference to launchpad instance
   program: any // Will be typed properly with Anchor Program type
+  saleTokenMint: PublicKey
+  configManager: any // Configuration manager instance
 }
 
 // Auction initialization parameters
