@@ -82,14 +82,14 @@ impl Auction {
     pub fn get_bin(&self, bin_id: u8) -> Result<&AuctionBin> {
         self.bins
             .get(bin_id as usize)
-            .ok_or(crate::errors::ResetError::InvalidBinId.into())
+            .ok_or(crate::errors::LauchpadError::InvalidBinId.into())
     }
 
     /// Get a mutable reference to a specific bin by ID
     pub fn get_bin_mut(&mut self, bin_id: u8) -> Result<&mut AuctionBin> {
         self.bins
             .get_mut(bin_id as usize)
-            .ok_or(crate::errors::ResetError::InvalidBinId.into())
+            .ok_or(crate::errors::LauchpadError::InvalidBinId.into())
     }
 }
 
@@ -97,7 +97,7 @@ impl Auction {
 pub fn check_emergency_state(auction: &Auction, operation_flag: u64) -> Result<()> {
     require!(
         !auction.emergency_state.is_paused(operation_flag),
-        crate::errors::ResetError::OperationPaused
+        crate::errors::LauchpadError::OperationPaused
     );
 
     Ok(())

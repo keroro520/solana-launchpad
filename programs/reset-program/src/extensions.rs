@@ -75,13 +75,13 @@ impl AuctionExtensions {
     ) -> Result<()> {
         // 1. Read the previous instruction (Ed25519 verification instruction)
         let ix = load_instruction_at_checked(0, sysvar_instructions)
-            .map_err(|_| crate::errors::ResetError::MissingSysvarInstructions)?;
+            .map_err(|_| crate::errors::LauchpadError::MissingSysvarInstructions)?;
 
         // 2. Verify it's an Ed25519 verification instruction
         require_eq!(
             ix.program_id,
             ed25519_program::ID,
-            crate::errors::ResetError::WrongProgram
+            crate::errors::LauchpadError::WrongProgram
         );
 
         // 3. Parse Ed25519 instruction data manually
@@ -89,14 +89,14 @@ impl AuctionExtensions {
         let data = &ix.data;
         require!(
             data.len() >= 1 + 64 + 32 + 2 + 2,
-            crate::errors::ResetError::MalformedEd25519Ix
+            crate::errors::LauchpadError::MalformedEd25519Ix
         );
 
         let num_signatures = data[0];
         require_eq!(
             num_signatures,
             1,
-            crate::errors::ResetError::MalformedEd25519Ix
+            crate::errors::LauchpadError::MalformedEd25519Ix
         );
 
         // Extract public key (skip num_signatures + signature)
@@ -106,7 +106,7 @@ impl AuctionExtensions {
         // 4. Verify public key matches expected authority
         require!(
             public_key == expected_authority.to_bytes(),
-            crate::errors::ResetError::Unauthorized
+            crate::errors::LauchpadError::Unauthorized
         );
 
         // 5. Extract and verify message
@@ -132,19 +132,19 @@ impl AuctionExtensions {
         let mut expected_message = Vec::new();
         expected_payload
             .serialize(&mut expected_message)
-            .map_err(|_| crate::errors::ResetError::SerializationError)?;
+            .map_err(|_| crate::errors::LauchpadError::SerializationError)?;
 
         // 7. Verify message matches signed content
         require!(
             message == expected_message.as_slice(),
-            crate::errors::ResetError::PayloadMismatch
+            crate::errors::LauchpadError::PayloadMismatch
         );
 
         // 8. Check signature hasn't expired
         let current_time = Clock::get()?.unix_timestamp as u64;
         require!(
             current_time <= expiry,
-            crate::errors::ResetError::SignatureExpired
+            crate::errors::LauchpadError::SignatureExpired
         );
 
         Ok(())
@@ -159,7 +159,7 @@ impl AuctionExtensions {
             let total_payment_committed = committed.total_payment_committed();
             require!(
                 total_payment_committed + additional_payment <= commit_cap,
-                crate::errors::ResetError::CommitCapExceeded
+                crate::errors::LauchpadError::CommitCapExceeded
             );
         }
         Ok(())

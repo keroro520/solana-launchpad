@@ -1,4 +1,4 @@
-# Reset Program Specification
+# Launchpad Program Specification
 
 ## 约定
 
@@ -54,7 +54,7 @@ END
 
 | Account                  | Description                                                                                                                                                                                                                                                                                                     |
 | :----------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Launchpad                | 平台账户， executable program， program 内硬编码了管理员 LaunchpadAdmin 的 pubkey，对应 Reset Launchpad 平台，只有一个。提供 `get_launchpad_admin()` 指令查询硬编码的管理员公钥                                                                                                                                 |
+| Launchpad                | 平台账户， executable program， program 内硬编码了管理员 LaunchpadAdmin 的 pubkey，对应 Launchpad 平台，只有一个。提供 `get_launchpad_admin()` 指令查询硬编码的管理员公钥                                                                                                                                 |
 | Auction                  | 募资活动账户，对应此次募资活动，每次募资都会创建一个对应的 PDA 账户实例，用于存储募资信息，包括每个梯度的 "已认购的 `$bbSol` 数量"，以及金库 bump 信息。authority 字段指向硬编码的 LaunchpadAdmin                                                                                                               |
 | Custody                  | 代理账户，由私钥控制，对应 Bybit，Bybit 代理账户替站内用户发起认购；可以视作特殊用户，因为它不受白名单的限制，也不受认购额度的限制. 在认购时，检查交易是否有Custody 的 **离线授权签名**，如果有，则跳过白名单限制、认购额度限制等；目前只有一个代理账户，且没提供更改账户的指令 |
 | VaultSaleTokenAccount    | 金库的 `$DAI` 账户，PDA 账户，用于保管活动要发放的 `$DAI`，在活动创建时自动创建并转入代币                                                                                                                                                                                                                       |
@@ -80,7 +80,7 @@ END
 
 ## Account Data and Constraints
 
-Reset program 定义的账户类型有 Auction、Committed，下面详细介绍这些账户类型。
+program 定义的账户类型有 Auction、Committed，下面详细介绍这些账户类型。
 
 ### Auction Account
 
@@ -91,7 +91,7 @@ Reset program 定义的账户类型有 Auction、Committed，下面详细介绍�
 #[account]
 struct Auction {
     // system info
-    owner: Reset Program,
+    owner: Launchpad Program,
     seeds = ["auction", SaleTokenMint.key()],
     bump,
 
@@ -176,7 +176,7 @@ pub mod emergency_flags {
 #[account]
 struct Committed {
     // system info
-    owner: Reset Program,
+    owner: Launchpad Program,
     seeds = ["committed", Auction.key(), user.key()],  // 移除了 bin_id
     bump,
 
@@ -537,7 +537,7 @@ let total_committed: u64 = committed.bins.iter()
 // 验证新的认购不会超过限制
 if let Some(cap) = auction.extensions.commit_cap_per_user {
     if total_committed + new_commitment > cap {
-        return Err(ResetErrorCode::CommitCapExceeded.into());
+        return Err(LaunchpadErrorCode::CommitCapExceeded.into());
     }
 }
 ```
@@ -555,7 +555,7 @@ Precision factor = 10000.
 
 ```rust
 // 获取用户在指定梯度的认购信息
-let committed_bin = committed.find_bin(bin_id).ok_or(ResetErrorCode::InvalidBinId)?;
+let committed_bin = committed.find_bin(bin_id).ok_or(LaunchpadErrorCode::InvalidBinId)?;
 
 // 计算用户期望的 sale tokens
 let user_desired_sale_tokens = committed_bin.payment_token_committed / bin.sale_token_price;

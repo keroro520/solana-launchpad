@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 #[error_code]
-pub enum ResetError {
+pub enum LauchpadError {
     // Authorization and Emergency Control Errors (6000-6099)
     #[msg("Operation is paused by emergency control")]
     OperationPaused = 6000,

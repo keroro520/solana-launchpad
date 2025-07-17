@@ -3,7 +3,7 @@ use crate::allocation::{
     check_all_bins_fully_claimed,
 };
 use crate::consts::LAUNCHPAD_ADMIN;
-use crate::errors::ResetError;
+use crate::errors::LauchpadError;
 use crate::extensions::AuctionExtensions;
 use crate::state::*;
 use anchor_lang::prelude::*;
@@ -26,7 +26,7 @@ pub fn init_auction(
     require_keys_eq!(
         LAUNCHPAD_ADMIN,
         ctx.accounts.authority.key(),
-        ResetError::OnlyLaunchpadAdmin
+        LauchpadError::OnlyLaunchpadAdmin
     );
 
     // CHECK: timing validation, require current_time <= commit_start_time <= commit_end_time <= claim_start_time
@@ -35,27 +35,27 @@ pub fn init_auction(
         current_time <= commit_start_time
             && commit_start_time <= commit_end_time
             && commit_end_time <= claim_start_time,
-        ResetError::InvalidAuctionTimeRange
+        LauchpadError::InvalidAuctionTimeRange
     );
 
     // CHECK: bins length validation, require 1-10 bins
     require!(
         bins.len() >= 1 && bins.len() <= 10,
-        ResetError::InvalidAuctionBinsLength
+        LauchpadError::InvalidAuctionBinsLength
     );
 
     // CHECK: bins price and cap validation, require price and cap to be greater than zero
     require!(
         bins.iter()
             .all(|bin| bin.sale_token_price > 0 && bin.sale_token_cap > 0),
-        ResetError::InvalidAuctionBinsPriceOrCap
+        LauchpadError::InvalidAuctionBinsPriceOrCap
     );
 
     // TODO: fee rate format?
     // CHECK: extensions configuration validation
     require!(
         extensions.claim_fee_rate.map_or(true, |rate| rate > 0),
-        ResetError::NoClaimFeesConfigured
+        LauchpadError::NoClaimFeesConfigured
     );
 
     // Initialize auction
@@ -174,14 +174,14 @@ pub fn commit(
     require!(
         ctx.accounts.auction.commit_start_time <= current_time
             && current_time <= ctx.accounts.auction.commit_end_time,
-        ResetError::OutOfCommitmentPeriod
+        LauchpadError::OutOfCommitmentPeriod
     );
 
     // CHECK: commitment amount validation
     require_neq!(
         payment_token_committed,
         0,
-        ResetError::InvalidCommitmentAmount
+        LauchpadError::InvalidCommitmentAmount
     );
 
     // CHECK: commitment bin validation
@@ -212,7 +212,7 @@ pub fn commit(
                 .accounts
                 .sysvar_instructions
                 .as_ref()
-                .ok_or(ResetError::MissingSysvarInstructions)?;
+                .ok_or(LauchpadError::MissingSysvarInstructions)?;
             auction.extensions.verify_whitelist_signature(
                 sysvar_instructions,
                 &user_key,
@@ -241,7 +241,7 @@ pub fn commit(
             committed_bin.payment_token_committed = committed_bin
                 .payment_token_committed
                 .checked_add(payment_token_committed)
-                .ok_or(ResetError::MathOverflow)?;
+                .ok_or(LauchpadError::MathOverflow)?;
         }
         None => {
             ctx.accounts.committed.bins.push(CommittedBin {
@@ -258,7 +258,7 @@ pub fn commit(
         auction.total_participants = auction
             .total_participants
             .checked_add(1)
-            .ok_or(ResetError::MathOverflow)?;
+            .ok_or(LauchpadError::MathOverflow)?;
     }
     let bin = auction.get_bin_mut(bin_id)?;
     bin.payment_token_raised += payment_token_committed;
@@ -282,7 +282,7 @@ pub fn commit(
         .committed
         .nonce
         .checked_add(1)
-        .ok_or(ResetError::NonceOverflow)?;
+        .ok_or(LauchpadError::NonceOverflow)?;
 
     msg!(
         "User {} committed {} tokens to bin {}, nonce incremented to {} (custody_authorized: {})",
@@ -317,7 +317,7 @@ fn check_custody_authorization(
         require_keys_eq!(
             custody_authority.key(),
             custody,
-            ResetError::InvalidCustodyAuthority
+            LauchpadError::InvalidCustodyAuthority
         );
 
         // Verify custody signature using the same mechanism as whitelist
@@ -357,14 +357,14 @@ pub fn decrease_commit(
     let current_time = Clock::get()?.unix_timestamp;
     require!(
         auction.commit_start_time <= current_time && current_time <= auction.commit_end_time,
-        ResetError::OutOfCommitmentPeriod
+        LauchpadError::OutOfCommitmentPeriod
     );
 
     // CHECK: commitment amount validation
     require_neq!(
         payment_token_reverted,
         0,
-        ResetError::InvalidCommitmentAmount
+        LauchpadError::InvalidCommitmentAmount
     );
 
     let committed = &mut ctx.accounts.committed;
@@ -372,10 +372,10 @@ pub fn decrease_commit(
     // CHECK: Validate sufficient committed amount
     let committed_bin = committed
         .find_bin_mut(bin_id)
-        .ok_or(ResetError::InvalidBinId)?;
+        .ok_or(LauchpadError::InvalidBinId)?;
     require!(
         committed_bin.payment_token_committed >= payment_token_reverted,
-        ResetError::InvalidCommitmentAmount
+        LauchpadError::InvalidCommitmentAmount
     );
 
     // Update committed account
@@ -428,20 +428,20 @@ pub fn claim(
     let current_time = Clock::get()?.unix_timestamp;
     require!(
         ctx.accounts.auction.claim_start_time <= current_time,
-        ResetError::OutOfClaimPeriod
+        LauchpadError::OutOfClaimPeriod
     );
 
     // CHECK: Claim amount validation
     require!(
         sale_token_to_claim != 0 || payment_token_to_refund != 0,
-        ResetError::InvalidClaimAmount
+        LauchpadError::InvalidClaimAmount
     );
 
     // CHECK: Validate authority
     require_keys_eq!(
         ctx.accounts.committed.user,
         ctx.accounts.user.key(),
-        ResetError::Unauthorized
+        LauchpadError::Unauthorized
     );
 
     // Store keys and values before borrowing mutably
@@ -465,7 +465,7 @@ pub fn claim(
         // Find the specific bin commitment
         let committed_bin = committed
             .find_bin_mut(bin_id)
-            .ok_or(ResetError::InvalidBinId)?;
+            .ok_or(LauchpadError::InvalidBinId)?;
 
         // Get the auction bin for calculations
         let bin = auction.get_bin_mut(bin_id)?;
@@ -474,7 +474,7 @@ pub fn claim(
         let bin_target = bin
             .sale_token_cap
             .checked_mul(bin.sale_token_price)
-            .ok_or(ResetError::MathOverflow)?;
+            .ok_or(LauchpadError::MathOverflow)?;
 
         let claimable_amounts = calculate_claimable_amounts(
             committed_bin.payment_token_committed,
@@ -497,7 +497,7 @@ pub fn claim(
         require!(
             sale_token_to_claim <= remaining_sale_tokens
                 && payment_token_to_refund <= remaining_payment_refund,
-            ResetError::InvalidClaimAmount
+            LauchpadError::InvalidClaimAmount
         );
 
         // Transfer sale tokens if requested
@@ -624,21 +624,21 @@ pub fn withdraw_funds(ctx: Context<WithdrawFunds>) -> Result<()> {
     // CHECK: Prevent double withdrawal
     require!(
         !auction.unsold_sale_tokens_and_effective_payment_tokens_withdrawn,
-        ResetError::DoubleFundsWithdrawal
+        LauchpadError::DoubleFundsWithdrawal
     );
 
     // CHECK: Timing validation - can withdraw after commit period ends
     let current_time = Clock::get()?.unix_timestamp;
     require!(
         current_time > auction.commit_end_time,
-        ResetError::InCommitmentPeriod
+        LauchpadError::InCommitmentPeriod
     );
 
     // CHECK: Validate authority
     require_keys_eq!(
         auction.authority,
         ctx.accounts.authority.key(),
-        ResetError::Unauthorized
+        LauchpadError::Unauthorized
     );
 
     // Calculate withdrawal amounts using allocation.rs functions
@@ -712,7 +712,7 @@ pub fn withdraw_fees(ctx: Context<WithdrawFees>) -> Result<()> {
     let current_time = Clock::get()?.unix_timestamp;
     require!(
         current_time > ctx.accounts.auction.commit_end_time,
-        ResetError::InCommitmentPeriod
+        LauchpadError::InCommitmentPeriod
     );
 
     let auction = &mut ctx.accounts.auction;
@@ -765,7 +765,7 @@ pub fn set_price(ctx: Context<SetPrice>, bin_id: u8, new_price: u64) -> Result<(
     )?;
 
     // CHECK: Validate new price
-    require!(new_price > 0, ResetError::InvalidAuctionBinsPriceOrCap);
+    require!(new_price > 0, LauchpadError::InvalidAuctionBinsPriceOrCap);
 
     let auction = &mut ctx.accounts.auction;
     let bin = auction.get_bin_mut(bin_id)?;
@@ -1083,7 +1083,7 @@ pub struct EmergencyControl<'info> {
 
     #[account(
         mut,
-        has_one = authority @ ResetError::OnlyLaunchpadAdmin
+        has_one = authority @ LauchpadError::OnlyLaunchpadAdmin
     )]
     pub auction: Account<'info, Auction>,
 }

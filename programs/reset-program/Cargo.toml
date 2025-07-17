@@ -1,12 +1,12 @@
 [package]
-name = "reset-program"
+name = "lauchpad-program"
 version = "0.1.0"
 description = "Created with Anchor"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "reset_program"
+name = "launchpad_program"
 
 [features]
 no-entrypoint = []

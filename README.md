@@ -1,10 +1,10 @@
-# Reset Launchpad Program
+# Launchpad Program
 
 Specification: [docs/trd.md](docs/trd.md)
 
-IDL files: [types/reset_program.ts](types/reset_program.ts)
+IDL files: [types/](types/)
 
-Typescript SDK: [reset-sdk](reset-sdk)
+Typescript SDK: [launchpad-sdk](launchpad-sdk)
 
 ## Development
 

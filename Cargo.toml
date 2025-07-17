@@ -1,5 +1,5 @@
 [workspace]
-members = ["programs/reset-program"]
+members = ["programs/launchpad-program"]
 resolver = "2"
 
 [profile.release]

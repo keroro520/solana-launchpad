@@ -23,7 +23,7 @@ impl AllocationRatio {
     pub fn calculate(target_amount: u64, raised_amount: u64) -> Result<Self> {
         require!(
             raised_amount != 0,
-            crate::errors::ResetError::DivisionByZero
+            crate::errors::LauchpadError::DivisionByZero
         );
 
         let is_oversubscribed = raised_amount > target_amount;
@@ -31,9 +31,9 @@ impl AllocationRatio {
             // Oversubscribed: proportional allocation
             target_amount
                 .checked_mul(PRECISION_FACTOR)
-                .ok_or(crate::errors::ResetError::MathOverflow)?
+                .ok_or(crate::errors::LauchpadError::MathOverflow)?
                 .checked_div(raised_amount)
-                .ok_or(crate::errors::ResetError::DivisionByZero)?
+                .ok_or(crate::errors::LauchpadError::DivisionByZero)?
         } else {
             // Undersubscribed: 100% allocation
             PRECISION_FACTOR
@@ -53,13 +53,13 @@ impl AllocationRatio {
     pub fn apply_to_commitment(&self, payment_token_committed: u64) -> Result<(u64, u64)> {
         let allocated = payment_token_committed
             .checked_mul(self.ratio)
-            .ok_or(crate::errors::ResetError::MathOverflow)?
+            .ok_or(crate::errors::LauchpadError::MathOverflow)?
             .checked_div(PRECISION_FACTOR)
-            .ok_or(crate::errors::ResetError::DivisionByZero)?;
+            .ok_or(crate::errors::LauchpadError::DivisionByZero)?;
 
         let refund = payment_token_committed
             .checked_sub(allocated)
-            .ok_or(crate::errors::ResetError::MathUnderflow)?;
+            .ok_or(crate::errors::LauchpadError::MathUnderflow)?;
 
         Ok((allocated, refund))
     }
@@ -112,7 +112,7 @@ pub fn calculate_claimable_amounts(
     // Calculate sale tokens based on effective payment amount and price
     let sale_tokens = effective_payment
         .checked_div(sale_token_price)
-        .ok_or(crate::errors::ResetError::DivisionByZero)?;
+        .ok_or(crate::errors::LauchpadError::DivisionByZero)?;
 
     Ok(ClaimableAmounts {
         sale_tokens,
@@ -141,10 +141,10 @@ impl ClaimableAmounts {
         let total = self
             .effective_payment_tokens
             .checked_add(self.refund_payment_tokens)
-            .ok_or(crate::errors::ResetError::MathOverflow)?;
+            .ok_or(crate::errors::LauchpadError::MathOverflow)?;
 
         if total != original_commitment {
-            return Err(crate::errors::ResetError::InvalidCalculation.into());
+            return Err(crate::errors::LauchpadError::InvalidCalculation.into());
         }
 
         Ok(())
@@ -169,7 +169,7 @@ pub fn calculate_bin_withdraw_amounts(
     // Calculate total sale tokens demanded based on payment raised and price
     let total_sale_tokens_demanded = bin_payment_raised
         .checked_div(bin_sale_token_price)
-        .ok_or(crate::errors::ResetError::DivisionByZero)?;
+        .ok_or(crate::errors::LauchpadError::DivisionByZero)?;
 
     // Calculate actual sale tokens sold (capped by bin capacity)
     let sale_tokens_sold = std::cmp::min(total_sale_tokens_demanded, bin_sale_token_cap);
@@ -177,12 +177,12 @@ pub fn calculate_bin_withdraw_amounts(
     // Calculate payment amount that should be withdrawn (effective payment)
     let payment_amount = sale_tokens_sold
         .checked_mul(bin_sale_token_price)
-        .ok_or(crate::errors::ResetError::MathOverflow)?;
+        .ok_or(crate::errors::LauchpadError::MathOverflow)?;
 
     // Calculate unsold sale tokens
     let unsold_sale_tokens = bin_sale_token_cap
         .checked_sub(sale_tokens_sold)
-        .ok_or(crate::errors::ResetError::MathUnderflow)?;
+        .ok_or(crate::errors::LauchpadError::MathUnderflow)?;
 
     Ok(WithdrawAmounts {
         payment_tokens_to_withdraw: payment_amount,
@@ -214,11 +214,11 @@ pub fn calculate_total_withdraw_amounts(
 
         total_payment_to_withdraw = total_payment_to_withdraw
             .checked_add(bin_amounts.payment_tokens_to_withdraw)
-            .ok_or(crate::errors::ResetError::MathOverflow)?;
+            .ok_or(crate::errors::LauchpadError::MathOverflow)?;
 
         total_unsold_sale_tokens = total_unsold_sale_tokens
             .checked_add(bin_amounts.unsold_sale_tokens)
-            .ok_or(crate::errors::ResetError::MathOverflow)?;
+            .ok_or(crate::errors::LauchpadError::MathOverflow)?;
     }
 
     Ok(TotalWithdrawAmounts {
@@ -244,13 +244,13 @@ pub fn check_all_bins_fully_claimed(
         // Find the corresponding auction bin
         let auction_bin = auction_bins
             .get(committed_bin.bin_id as usize)
-            .ok_or(crate::errors::ResetError::InvalidBinId)?;
+            .ok_or(crate::errors::LauchpadError::InvalidBinId)?;
 
         // Calculate bin target (sale tokens * price)
         let bin_target = auction_bin
             .sale_token_cap
             .checked_mul(auction_bin.sale_token_price)
-            .ok_or(crate::errors::ResetError::MathOverflow)?;
+            .ok_or(crate::errors::LauchpadError::MathOverflow)?;
 
         // Calculate user's entitlements for this bin
         let claimable_amounts = calculate_claimable_amounts(
@@ -287,7 +287,7 @@ pub fn calculate_withdrawable_fees(
 ) -> Result<u64> {
     total_fees_collected
         .checked_sub(total_fees_withdrawn)
-        .ok_or(crate::errors::ResetError::MathUnderflow.into())
+        .ok_or(crate::errors::LauchpadError::MathUnderflow.into())
 }
 
 /// Result of bin withdraw amount calculation

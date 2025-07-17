@@ -1,7 +1,7 @@
 {
-  "name": "reset-program-tests",
+  "name": "launchpad-program-tests",
   "version": "0.1.0",
-  "description": "TypeScript tests for Reset Program",
+  "description": "TypeScript tests for Launchpad Program",
   "scripts": {
     "test": "ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=$HOME/.config/solana/id.json ts-node tests/run-all-tests.ts",
     "test:unit": "ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=$HOME/.config/solana/id.json ts-mocha -p ./tsconfig.json tests/unit/*.test.ts",
@@ -14,9 +14,9 @@
     "test:watch": "ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=$HOME/.config/solana/id.json ts-mocha -p ./tsconfig.json --watch tests/**/*.test.ts",
     "test:coverage": "ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=$HOME/.config/solana/id.json nyc ts-mocha -p ./tsconfig.json tests/**/*.test.ts",
     "build": "tsc",
-    "build:sdk": "cd reset-sdk && npm run build",
-    "build:sdk:watch": "cd reset-sdk && npm run build:watch",
-    "clean:sdk": "cd reset-sdk && npm run clean",
+    "build:sdk": "cd launchpad-sdk && npm run build",
+    "build:sdk:watch": "cd launchpad-sdk && npm run build:watch",
+    "clean:sdk": "cd launchpad-sdk && npm run clean",
     "lint": "eslint tests/**/*.ts",
     "format": "prettier --write **/*.{ts,tsx,js,jsx,css,scss,json,md}"
   },

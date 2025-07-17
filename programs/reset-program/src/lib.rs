@@ -22,7 +22,7 @@ pub use state::*;
 pub use testing::*;
 
 #[program]
-pub mod reset_program {
+pub mod launchpad_program {
     use super::*;
 
     /// Create a new auction with automatic vault creation

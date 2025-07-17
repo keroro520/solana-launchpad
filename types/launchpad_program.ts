@@ -2,12 +2,12 @@
  * Program IDL in camelCase format in order to be used in JS/TS.
  *
  * Note that this is only a type helper and is not the actual IDL. The original
- * IDL can be found at `target/idl/reset_program.json`.
+ * IDL can be found at `target/idl/launchpad_program.json`.
  */
-export type ResetProgram = {
+export type LaunchpadProgram = {
   "address": "5dhQapnBy7pXnuPR9fTbgvFt4SsZCWiwQ4qtMEVSMDvZ",
   "metadata": {
-    "name": "resetProgram",
+    "name": "launchpadProgram",
     "version": "0.1.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
@@ -714,42 +714,6 @@ export type ResetProgram = {
         {
           "name": "newPrice",
           "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "setTimes",
-      "docs": [
-        "Set auction times (only available in testing builds)"
-      ],
-      "discriminator": [
-        17,
-        75,
-        120,
-        176,
-        138,
-        193,
-        159,
-        8
-      ],
-      "accounts": [
-        {
-          "name": "auction",
-          "writable": true
-        }
-      ],
-      "args": [
-        {
-          "name": "commitStartTime",
-          "type": "i64"
-        },
-        {
-          "name": "commitEndTime",
-          "type": "i64"
-        },
-        {
-          "name": "claimStartTime",
-          "type": "i64"
         }
       ]
     },
