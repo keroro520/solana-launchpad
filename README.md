@@ -1,10 +1,8 @@
 # Launchpad Program
 
-Specification: [docs/trd.md](docs/trd.md)
+Specification: [docs/specs.md](docs/specs.md)
 
 IDL files: [types/](types/)
-
-Typescript SDK: [launchpad-sdk](launchpad-sdk)
 
 ## Development
 
